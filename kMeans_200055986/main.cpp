@@ -4,7 +4,7 @@
 #include "io.h"
 #include "kMeans.h"
 
-#define DATA_FROM_FILE_SIZE 2
+#define DATA_FROM_FILE_SIZE 3
 
 
 void createVectorAssignmentToMachinesArray(int  totalNumVectors,
@@ -85,6 +85,7 @@ int main(int argc, char *argv[])
 
 		dataFromFile[0] = totalNumVectors;
 		dataFromFile[1] = iterationLimit;
+		dataFromFile[2] = k;
 		
 	}
 
@@ -94,6 +95,7 @@ int main(int argc, char *argv[])
 	
 	totalNumVectors = dataFromFile[0];
 	iterationLimit = dataFromFile[1];
+	k = dataFromFile[2];
 
 	//compute the chunck of vectors each machine gets
 	//set values to sendCounts & displsScatter
@@ -119,8 +121,6 @@ int main(int argc, char *argv[])
 
 	//scatter vectors to all machines
 	MPI_Scatterv(vectorsReadFile, sendCounts, displsScatter, MPI_DOUBLE, vectorsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	printf("%d\n", myid);
-	fflush(stdout);
 
 	//each proc writes its vectors to the GPU for the k-Means
 	copyVectorsToGPU(vectorsEachProc, &devVectors, numVectorsInMachine, numDims);
@@ -149,6 +149,32 @@ int main(int argc, char *argv[])
 				clusters[i][j] = vectorsReadFile[j + i * numDims];
 			}
 		}
+	}
+
+	printf("%d\n", myid);
+	fflush(stdout);
+
+	MPI_Gatherv(vToCRelevanceEachProc, numVectorsInMachine, MPI_INT, vectorToClusterRelevance,
+		recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
+
+	//computing cluster group quality
+	if (myid == 0)
+	{
+		diameters = computeClustersDiameters(vectorsReadFile, totalNumVectors, k, numDims, vectorToClusterRelevance);
+
+		clusterGroupQuality = computeClusterGroupQuality(clusters, k, numDims, diameters);
+
+		free(diameters);
+	}
+
+	//broadcasting the found quality to all procs because it's a condition to stop the do..while loop
+	MPI_Bcast(&clusterGroupQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+	if (clusterGroupQuality > requiredQuality)
+	{
+		free(clusters[0]);
+		free(clusters);
+		free(vToCRelevanceEachProc);
 	}
 
 	MPI_Finalize();

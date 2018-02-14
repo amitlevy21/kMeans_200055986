@@ -160,11 +160,13 @@ copy "$(CudaToolkitBinDir)\cudart*.dll" "$(OutDir)"</Command>
     <ClCompile Include="io.cpp" />
     <ClCompile Include="kMeans.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="quality.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="io.h" />
     <ClInclude Include="kernel.h" />
     <ClInclude Include="kMeans.h" />
+    <ClInclude Include="quality.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
