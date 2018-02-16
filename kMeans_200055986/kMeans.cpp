@@ -103,7 +103,7 @@ int k_means(double    **vectors,     			 //in:[numVectors][numDims] vectors from
 	return 0;
 }
 
-cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, int numVectors, int numDims)
+cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, double **vectorSpeeds, double **devSpeeds, int numVectors, int numDims)
 {
 	cudaError_t cudaStatus;
 
@@ -122,6 +122,14 @@ cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, int numVecto
 		cudaFree(devVectors);
 	}
 
+	//allocating memory on GPU for vectors speeds
+	cudaStatus = cudaMalloc((void**)devSpeeds, numVectors * numDims * sizeof(double));
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaMalloc failed!");
+		cudaFree(devVectors);
+	}
+
 	//copying the vectors from host to GPU
 	cudaStatus = cudaMemcpy(*devVectors, vectors[0], numVectors * numDims * sizeof(double), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess)
@@ -130,8 +138,17 @@ cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, int numVecto
 		cudaFree(devVectors);
 	}
 
+	//copying the vectors speeds from host to GPU
+	cudaStatus = cudaMemcpy(*devVectors, vectorSpeeds[0], numVectors * numDims * sizeof(double), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaMemcpy failed!");
+		cudaFree(devVectors);
+	}
+
 	return cudaStatus;
 }
+
 
 
 cudaError_t FreeVectorsOnGPU(double **devVectors)

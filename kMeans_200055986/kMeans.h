@@ -19,8 +19,10 @@ int k_means(double    **vectors,     			 //in:[numVectors][numDims] vectors from
 	MPI_Comm   comm);					 //communicator
 
 
-cudaError_t copyVectorsToGPU(double **vectors,		//[numVectors][numDims] vectors from division of file
+cudaError_t copyVectorsToGPU(double **vectors,		//[numVectors][numDims] vectors that each proc has
 	double **devVectors,	//[numVectors*numDims]  pointer to vectors on GPU
+	double **vectorSpeeds,	//[numVectors][numDims] vector speeds of each proc
+	double **devSpeeds,		//[numVectors*numDims]  pointer to speeds on GPU
 	int numVectors,
 	int numDims);
 
