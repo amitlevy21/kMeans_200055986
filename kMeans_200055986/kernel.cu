@@ -1,6 +1,30 @@
 
 #include "kernel.h"
 
+__global__ void movePoints(double *devPoints, // points that were copied to device
+	double *devSpeeds,		//speeds that were copied to device
+	int numOfPoints,
+	int numDims,
+	int numThreadsInBlock,	//each thread takes care of one coord of one point
+	double dt)					//the differencial for the change of coord
+{
+	int blockID = blockIdx.x;
+	int numOfCoord = numOfPoints * numDims;
+	int i;
+	double temp;
+	double newTemp;
+
+	if ((blockID == gridDim.x - 1) && (numOfPoints % blockDim.x <= threadIdx.x)) { return; } //dismiss spare threads
+
+	for (i = 0; i < numDims; ++i)
+	{
+		temp = devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i];
+		devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] += devSpeeds[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] * dt;
+		newTemp = devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i];
+		
+	}
+}
+
 __global__ void computeDistancesArray(double *devVectors,
 	double *devClusters,
 	int    numVectors,
@@ -52,11 +76,51 @@ __global__ void findMinDistanceForEachVectorFromCluster(int    numVectors,
 	devVToCRelevance[numThreadsInBlock*blockId + xid] = minIndex;
 }
 
+cudaError_t movePointsWithCuda(double *devPoints, // points that were copied to device
+	double *devSpeeds,		//speeds that were copied to device
+	int numOfPoints,
+	int numDims,
+	double dt)
+{
+	cudaError_t cudaStatus;
+	cudaDeviceProp devProp; //used to retrieve specs from GPU
+
+	int numBlocks, numThreadsInBlock;
+
+	cudaGetDeviceProperties(&devProp, 0); // 0 is for device 0
+
+	numThreadsInBlock = devProp.maxThreadsPerBlock / numOfPoints;
+	numBlocks = numOfPoints / numThreadsInBlock;
+	
+	if (numOfPoints % numThreadsInBlock > 0) { numBlocks++; }
+
+	movePoints<<<numBlocks, numThreadsInBlock>>>(devPoints, devSpeeds, numOfPoints, numDims, numThreadsInBlock, dt);
+
+	cudaStatus = cudaGetLastError();
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+		goto Error;
+	}
+
+	/* cudaDeviceSynchronize waits for the kernel to finish, and returns
+	any errors encountered during the launch*/
+	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+		goto Error;
+	}
+
+Error:
+	return cudaStatus;
+}
+
 cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 	double **clusters,
 	int     numVectors,
 	int     numClusters,
-	int	 numDims,
+	int		numDims,
 	int    *vToCRelevance)
 {
 	cudaError_t cudaStatus;

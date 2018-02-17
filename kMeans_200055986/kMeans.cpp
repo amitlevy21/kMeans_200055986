@@ -139,7 +139,7 @@ cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, double **vec
 	}
 
 	//copying the vectors speeds from host to GPU
-	cudaStatus = cudaMemcpy(*devVectors, vectorSpeeds[0], numVectors * numDims * sizeof(double), cudaMemcpyHostToDevice);
+	cudaStatus = cudaMemcpy(*devSpeeds, vectorSpeeds[0], numVectors * numDims * sizeof(double), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemcpy failed!");

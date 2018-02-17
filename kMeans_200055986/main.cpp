@@ -15,11 +15,7 @@ void createVectorAssignmentToMachinesArray(int  totalNumVectors,
 	int *sendCounts,
 	int *displs);
 
-void movePoints(double** points,
-	double** pointsSpeeds,
-	int numOfPoints,
-	int numOfDims,
-	int currentT);
+void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt);
 
 int main(int argc, char *argv[])
 {
@@ -155,7 +151,7 @@ int main(int argc, char *argv[])
 	
 	//each proc writes its vectors to the GPU for the k-Means
 	copyVectorsToGPU(vectorsEachProc, &devVectors, pointsSpeedsEachProc, &devVectorSpeeds, numVectorsInMachine, numDims);
-
+	
 	//vectorToClusterRelevance - the cluster id for each vector
 	vToCRelevanceEachProc = (int*)malloc(numVectorsInMachine * sizeof(int));
 	assert(vToCRelevanceEachProc != NULL);
@@ -189,11 +185,17 @@ int main(int argc, char *argv[])
 	{
 		//save GPU run time - do not move the points with 0*vi
 		if (currentT != 0)
-			movePoints(vectorsEachProc, pointsSpeedsEachProc, numVectorsInMachine, numDims, currentT);
+		{
+			//update the points on GPU
+			movePointsWithCuda(devVectors, devVectorSpeeds, numVectorsInMachine, numDims, dt);
+			
+			//update the points on CPU
+			movePointsWithOMP(vectorsEachProc, pointsSpeedsEachProc, numVectorsInMachine, numDims, dt);
+		}
 
 		/* start the core computation -------------------------------------------*/
 		int check = k_means(vectorsEachProc, devVectors, numDims, numVectorsInMachine, k, iterationLimit, vToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
-
+		
 
 		MPI_Gatherv(vToCRelevanceEachProc, numVectorsInMachine, MPI_INT, vectorToClusterRelevance,
 			recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
@@ -222,7 +224,7 @@ int main(int argc, char *argv[])
 		currentT += dt;
 		if (myid == 0)
 		{
-			printf("%lf\n", currentT);
+			printf("dt = %lf  qm = %lf\n", currentT, clusterGroupQuality);
 			fflush(stdout);
 		}
 			
@@ -278,7 +280,17 @@ void createVectorAssignmentToMachinesArray(int  totalNumVectors,
 	}
 }
 
-void movePoints(double ** points, double ** pointsSpeeds, int numOfPoints, int numOfDims, int currentT)
+void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt)
 {
+	int i, j;
+
+#pragma parallel for private(j)
+	for (i = 0; i < numOfPoints; i++)
+	{
+		for (j = 0; j < numDims; j++)
+		{
+			points[i][j] += speeds[i][j] * dt;
+		}
+	}
 }
 
