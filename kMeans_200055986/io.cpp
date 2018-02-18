@@ -1,36 +1,35 @@
 #include "io.h"
 
-double* readVectorsFromFile(const char *fileName,           //file containing the data set
+double* readPointsDataFromFile(const char *fileName,  //file containing the data set
 	int			numDims,
-	int        *numVectors,         //number of given vectors in file
+	int        *numPoints,			//number of given points in file
 	int		   *numOfClustersToFind,
 	int			*t,
 	double		*dt,
 	int        *iterationLimit,     //limit of k-means iteration allowed
 	double     *qualityOfClusters,	//quality of clusters to find according to file
 	double	   **pointsSpeeds)		//the speed for all points which we will read from the file
-
 {
 	int i, j, counter = 0;
-	double *vectors;
+	double *points;
 	FILE *f;
 
 	f = fopen(fileName, "r");
 	assert(f != NULL);
 
-	fscanf(f, "%d %d %d %lf %d %lf\n", numVectors, numOfClustersToFind, t, dt, iterationLimit, qualityOfClusters);
+	fscanf(f, "%d %d %d %lf %d %lf\n", numPoints, numOfClustersToFind, t, dt, iterationLimit, qualityOfClusters);
 	
 	//assiging the vectors Array (1D)
-	vectors = (double*)malloc((*numVectors) * numDims * sizeof(double));
-	assert(vectors != NULL);
-	*pointsSpeeds = (double*)malloc((*numVectors) * numDims * sizeof(double));
+	points = (double*)malloc((*numPoints) * numDims * sizeof(double));
+	assert(points != NULL);
+	*pointsSpeeds = (double*)malloc((*numPoints) * numDims * sizeof(double));
 	assert(*pointsSpeeds != NULL);
-	for (i = 0; i < (*numVectors); ++i)
+	for (i = 0; i < (*numPoints); ++i)
 	{
 		//read initial coordinates
 		for (j = 0; j < numDims; ++j)
 		{
-			fscanf(f, "%lf ", &vectors[j + i* numDims]);
+			fscanf(f, "%lf ", &points[j + i* numDims]);
 		}
 		//read speeds
 		for (j = 0; j < numDims; ++j)
@@ -42,14 +41,14 @@ double* readVectorsFromFile(const char *fileName,           //file containing th
 	}
 	
 	fclose(f);
-	return vectors;
+	return points;
 }
 
-void writeClustersToFile(char   *fileName,
-	double **clusters,
-	int     numClusters,
-	int	 numDims,
-	double   quality)
+void writeClustersToFile(char    *fileName,
+	double **clusters,		//[numClusters][numDims] cluster centers
+	int   numClusters,
+	int		  numDims,
+	double   quality)		//quality of the cluster group found
 {
 	int i, j;
 

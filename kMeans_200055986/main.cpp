@@ -6,14 +6,15 @@
 #include "kernel.h"
 #include "quality.h"
 
-#define DATA_FROM_FILE_SIZE 4
+#define DATA_FROM_FILE_INT_SIZE 4
+#define DATA_FROM_FILE_DOUBLE_SIZE 2
 
 
-void createVectorAssignmentToMachinesArray(int totalNumPoints,
-	int  numOfMachines,
+void createPointAssignmentToProcArray(int totalNumPoints,
+	int  numOfProcs,
 	int  numDims,
-	int *sendCounts,
-	int *displs);
+	int *sendCounts,	//[numOfProcs] item i will hold the num of elements proc i will receive in scatterv 
+	int *displs);		//[numOfProcs] the offsets between the data of each proc
 
 void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt);
 void printPoints(double *points, int numOfPoints, int numDims);
@@ -25,32 +26,31 @@ int main(int argc, char *argv[])
 
 	//variables for program
 	int i, j, k,					// k is actual num of clusters
-		continueKMeansFlag,			// 1 = continue, 0 = stop
-		numDims = 2,
-		totalNumVectors,			//num of vectors read from file
+		numDims = 2,				
+		totalNumPoints,				//num of points read from file
 		iterationLimit,				//limit of iterations allowed in kMeans algorithm
-		*vectorToClusterRelevance,  //[totalNumVectors] in use by p0 only! index is vector and value is cluster index which the vector belongs to
-		*vToCRelevanceEachProc,		//[numVectorInMachine] in use for the K-Means only! holds the relevance of vectors to clusters for each machine
-		*sendCounts = NULL,			//[numprocs] used for scatterV of vectors to machines
-		*recvCounts = NULL,			//[numprocs] used for gatherV of vectors to cluster relevancies from all machines to p0
-		*displsScatter = NULL,		//[numprocs] used for scatterV of vectors to machines
-		*displsGather = NULL,		//[numprocs] used for gatherV of vectors to cluster relevancies from all machines to p0
-		numVectorsInMachine,		//for each proc states how many vectors were assigned 
-		*dataFromFile,
+		*pointToClusterRelevance,   //[totalNumPoints] in use by p0 only! index is point and value is cluster index which the point belongs to
+		numPointsInProc,			//for each proc states how many points were assigned 
+		*pToCRelevanceEachProc,		//[numPointsInProc] in use for the K-Means only! holds the relevance of points to clusters for each proc
+		*sendCounts = NULL,			//[numprocs] used for scatterV of points to procs
+		*recvCounts = NULL,			//[numprocs] used for gatherV of points to cluster relevancies from all procs to p0
+		*displsScatter = NULL,		//[numprocs] used for scatterV of points to procs
+		*displsGather = NULL,		//[numprocs] used for gatherV of points to cluster relevancies from all procs to p0
+		*dataFromFileInt,			//[DATA_FROM_FILE_INT_SIZE] data from file with type int that will be broadcasted later
 		t;							//maximum time for running the algorithm
-		
 
-	double	 *vectorsReadFile,		//[totalNumVectors * numDims] all vectors from data-set
-		*devVectors = NULL,			//pointer to vectors on GPU 
-		*devVectorSpeeds = NULL,	//pointer to vector speeds on GPU
-		*diameters,				//[numClusters] in use by p0 only. contains diameters for each cluster
-		**clusters,				//[k][numDims] contains cluster centers
-		requiredQuality,		//required quality to reach stated in input file
-		clusterGroupQuality,	//quality computed for each group of k clusters
-		**vectorsEachProc,		//[numVectorsInMachine][numDims] holds all vectors that were assigned to a proc
-		*pointsSpeeds,			//[totalNumVectors * numDims] holds all speeds for each points
-		**pointsSpeedsEachProc, //[numVectorsInMachine][numDims] holds the speeds for the points the belong to each proc
-		dt,						//the change in time in each iteration
+	double	 *pointsReadFile,		//[totalNumPoints * numDims] all points from data-set
+		*devPoints = NULL,			//pointer to points on GPU 
+		*devPointSpeeds = NULL,		//pointer to points speeds on GPU
+		*diameters,					//[numClusters] in use by p0 only. contains diameters for each cluster
+		**clusters,					//[k][numDims] contains cluster centers
+		requiredQuality,			//required quality to reach stated in input file
+		currentQuality,				//quality of the current state of points, before moving them again
+		**pointsEachProc,			//[numPointsInProc][numDims] holds all points that were assigned to a proc
+		*pointsSpeeds,				//[totalNumPoints * numDims] holds all speeds for each coordinate of each point
+		**pointsSpeedsEachProc,		//[numPointsInProc][numDims] holds the speeds for the points that belong to proc
+		*dataFromFileDouble,		//[DATA_FROM_FILE_DOUBLE_SIZE] data from file with type double that will be broadcasted later
+		dt,							//the change in time in each iteration
 		currentT = 0;				//the current time for each proc
 		
 	char    *inputFile = "C:\\data_kmeans.txt",
@@ -62,9 +62,7 @@ int main(int argc, char *argv[])
 	MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
 	MPI_Status status;
 
-	continueKMeansFlag = 1; //continue iterations
-
-							//allocating memory undepandent of k
+	//allocating memory undepandent of k
 	sendCounts = (int*)malloc(numprocs * sizeof(int));
 	assert(sendCounts != NULL);
 	displsScatter = (int*)malloc(numprocs * sizeof(int));
@@ -73,8 +71,10 @@ int main(int argc, char *argv[])
 	assert(recvCounts != NULL);
 	displsGather = (int*)malloc(numprocs * sizeof(int));
 	assert(displsGather != NULL);
-	dataFromFile = (int*)malloc(DATA_FROM_FILE_SIZE * sizeof(int));
-	assert(dataFromFile != NULL);
+	dataFromFileInt = (int*)malloc(DATA_FROM_FILE_INT_SIZE * sizeof(int));
+	assert(dataFromFileInt != NULL);
+	dataFromFileDouble = (double*)malloc(DATA_FROM_FILE_DOUBLE_SIZE * sizeof(double));
+	assert(dataFromFileDouble != NULL);
 
 	//Time measurment
 	double t1 = MPI_Wtime();
@@ -82,10 +82,10 @@ int main(int argc, char *argv[])
 	if (myid == 0)
 	{
 		
-		//read vectors from data-set file
-		vectorsReadFile = readVectorsFromFile(inputFile,
+		//read points coordinate and speeds from data-set file
+		pointsReadFile = readPointsDataFromFile(inputFile,
 			numDims,
-			&totalNumVectors,
+			&totalNumPoints,
 			&k,
 			&t,
 			&dt,
@@ -93,69 +93,73 @@ int main(int argc, char *argv[])
 			&requiredQuality,
 			&pointsSpeeds);
 
-		//vectorToClusterRelevance - the cluster id for each vector
-		vectorToClusterRelevance = (int*)malloc(totalNumVectors * sizeof(int));
-		assert(vectorToClusterRelevance != NULL);
+		//pointToClusterRelevance - the cluster id for each point
+		pointToClusterRelevance = (int*)malloc(totalNumPoints * sizeof(int));
+		assert(pointToClusterRelevance != NULL);
 
-		dataFromFile[0] = totalNumVectors;
-		dataFromFile[1] = iterationLimit;
-		dataFromFile[2] = k;
-		dataFromFile[3] = t;
+		dataFromFileInt[0] = totalNumPoints;
+		dataFromFileInt[1] = iterationLimit;
+		dataFromFileInt[2] = k;
+		dataFromFileInt[3] = t;
+
+		dataFromFileDouble[0] = requiredQuality;
+		dataFromFileDouble[1] = dt;
 		
 	}
 
 	//broadcasting helpful data from file to all procs
-	MPI_Bcast(dataFromFile, DATA_FROM_FILE_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(&requiredQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(dataFromFileInt, DATA_FROM_FILE_INT_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(dataFromFileDouble, DATA_FROM_FILE_DOUBLE_SIZE, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
-	totalNumVectors = dataFromFile[0];
-	iterationLimit = dataFromFile[1];
-	k = dataFromFile[2];
-	t = dataFromFile[3];
-	
+	totalNumPoints = dataFromFileInt[0];
+	iterationLimit = dataFromFileInt[1];
+	k = dataFromFileInt[2];
+	t = dataFromFileInt[3];
 
-	//compute the chunck of vectors each machine gets
+	requiredQuality = dataFromFileDouble[0];
+	dt = dataFromFileDouble[1];
+
+	//compute the chunck of points each machine gets
 	//set values to sendCounts & displsScatter
-	createVectorAssignmentToMachinesArray(totalNumVectors, numprocs, numDims, sendCounts, displsScatter);
+	createPointAssignmentToProcArray(totalNumPoints, numprocs, numDims, sendCounts, displsScatter);
 
-	//make arrangements to gather all the vector to cluster relevancies - for later on in the program 
+	//make arrangements to gather all the point to cluster relevancies - for later on in the program 
 	for (i = 0; i < numprocs; ++i) { recvCounts[i] = sendCounts[i] / numDims; }
 	displsGather[0] = 0;
 	for (i = 1; i < numprocs; ++i) { displsGather[i] = displsGather[i - 1] + recvCounts[i - 1]; }
 
 	//sendCount[myid] is number of doubles every machine gets
-	numVectorsInMachine = sendCounts[myid] / numDims;
+	numPointsInProc = sendCounts[myid] / numDims;
 
-	//allocate memory for storing vectors on each machine
-	vectorsEachProc = (double**)malloc(numVectorsInMachine * sizeof(double*));
-	assert(vectorsEachProc != NULL);
-	vectorsEachProc[0] = (double*)malloc(numVectorsInMachine * numDims * sizeof(double));
-	assert(vectorsEachProc[0] != NULL);
-	for (i = 1; i < numVectorsInMachine; ++i)
+	//allocate memory for storing points on each machine
+	pointsEachProc = (double**)malloc(numPointsInProc * sizeof(double*));
+	assert(pointsEachProc != NULL);
+	pointsEachProc[0] = (double*)malloc(numPointsInProc * numDims * sizeof(double));
+	assert(pointsEachProc[0] != NULL);
+	for (i = 1; i < numPointsInProc; ++i)
 	{
-		vectorsEachProc[i] = vectorsEachProc[i - 1] + numDims;
+		pointsEachProc[i] = pointsEachProc[i - 1] + numDims;
 	}
-	pointsSpeedsEachProc = (double**)malloc(numVectorsInMachine * sizeof(double*));
+	pointsSpeedsEachProc = (double**)malloc(numPointsInProc * sizeof(double*));
 	assert(pointsSpeedsEachProc != NULL);
-	pointsSpeedsEachProc[0] = (double*)malloc(numVectorsInMachine * numDims * sizeof(double));
-	for (i = 1; i < numVectorsInMachine; ++i)
+	pointsSpeedsEachProc[0] = (double*)malloc(numPointsInProc * numDims * sizeof(double));
+	for (i = 1; i < numPointsInProc; ++i)
 	{
 		pointsSpeedsEachProc[i] = pointsSpeedsEachProc[i - 1] + numDims;
 	}
 
-	//scatter vectors to all machines
-	MPI_Scatterv(vectorsReadFile, sendCounts, displsScatter, MPI_DOUBLE, vectorsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	//scatter points to all machines
+	MPI_Scatterv(pointsReadFile, sendCounts, displsScatter, MPI_DOUBLE, pointsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
 	//scatter point speeds to all machines
 	MPI_Scatterv(pointsSpeeds, sendCounts, displsScatter, MPI_DOUBLE, pointsSpeedsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
-	//each proc writes its vectors to the GPU for the k-Means
-	copyVectorsToGPU(vectorsEachProc, &devVectors, pointsSpeedsEachProc, &devVectorSpeeds, numVectorsInMachine, numDims);
+	//each proc writes its points and their speeds to the GPU for the k-Means
+	copyPointDataToGPU(pointsEachProc, &devPoints, pointsSpeedsEachProc, &devPointSpeeds, numPointsInProc, numDims);
 	
 	//vectorToClusterRelevance - the cluster id for each vector
-	vToCRelevanceEachProc = (int*)malloc(numVectorsInMachine * sizeof(int));
-	assert(vToCRelevanceEachProc != NULL);
+	pToCRelevanceEachProc = (int*)malloc(numPointsInProc * sizeof(int));
+	assert(pToCRelevanceEachProc != NULL);
 
 	//allocate memory for clusters matrix
 	clusters = (double**)malloc(k * sizeof(double*));
@@ -174,7 +178,7 @@ int main(int argc, char *argv[])
 		{
 			for (j = 0; j < numDims; ++j)
 			{
-				clusters[i][j] = vectorsReadFile[j + i * numDims];
+				clusters[i][j] = pointsReadFile[j + i * numDims];
 			}
 		}
 	}
@@ -189,81 +193,82 @@ int main(int argc, char *argv[])
 		{
 			
 			//update the points on GPU
-			movePointsWithCuda(vectorsEachProc, devVectors, devVectorSpeeds, numVectorsInMachine, numDims, dt);
+			movePointsWithCuda(pointsEachProc, devPoints, devPointSpeeds, numPointsInProc, numDims, dt);
 
-			printPoints(vectorsEachProc[0], numVectorsInMachine, numDims);
+			printPoints(pointsEachProc[0], numPointsInProc, numDims);
 
 			//update the points on CPU
 			//movePointsWithOMP(vectorsEachProc, pointsSpeedsEachProc, numVectorsInMachine, numDims, dt);
 		}
 
 		/* start the core computation -------------------------------------------*/
-		int check = k_means(vectorsEachProc, devVectors, numDims, numVectorsInMachine, k, iterationLimit, vToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
+		int check = k_means(pointsEachProc, devPoints, numDims, numPointsInProc, k, iterationLimit, pToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
 		
-		MPI_Gatherv(vToCRelevanceEachProc, numVectorsInMachine, MPI_INT, vectorToClusterRelevance,
+		MPI_Gatherv(pToCRelevanceEachProc, numPointsInProc, MPI_INT, pointToClusterRelevance,
 			recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
 		
 
 		//computing cluster group quality
 		if (myid == 0)
 		{
-			diameters = computeClustersDiameters(vectorsReadFile, totalNumVectors, k, numDims, vectorToClusterRelevance);
+			diameters = computeClustersDiameters(pointsReadFile, totalNumPoints, k, numDims, pointToClusterRelevance);
 
-			clusterGroupQuality = computeClusterGroupQuality(clusters, k, numDims, diameters);
+			currentQuality = computeClusterGroupQuality(clusters, k, numDims, diameters);
 
 			free(diameters);
 		}
 
 		//broadcasting the found quality to all procs because it's a condition to stop the do..while loop
-		MPI_Bcast(&clusterGroupQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		MPI_Bcast(&currentQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 		currentT += dt;
 		if (myid == 0)
 		{
-			printf("dt = %lf  qm = %lf\n", currentT, clusterGroupQuality);
+			printf("dt = %lf  qm = %lf\n", currentT, currentQuality);
 			fflush(stdout);
 		}
 			
-	} while (currentT < t && clusterGroupQuality > requiredQuality);
+	} while (currentT < t && currentQuality > requiredQuality);
 
 	
 	if (myid == 0)
-		writeClustersToFile(outputFile, clusters, k, numDims, clusterGroupQuality);
+		writeClustersToFile(outputFile, clusters, k, numDims, currentQuality);
 	
 	//Time measurment
 	double t2 = MPI_Wtime() - t1;
 
 	//free all memory allocated
-	FreeVectorsOnGPU(&devVectors);
+	FreePointDataOnGPU(&devPoints, &devPointSpeeds);
 	free(clusters[0]);
 	free(clusters);
-	free(vToCRelevanceEachProc);
+	free(pToCRelevanceEachProc);
 
 	if (myid == 0)
 	{
-		free(vectorToClusterRelevance);
-		printf("\ntime=%.5f\nquality=%.5f\n\n", t2, clusterGroupQuality);
+		free(pointToClusterRelevance);
+		printf("\ntime=%.5f\nquality=%.5f\n\n", t2, currentQuality);
 	}
 
 	MPI_Finalize();
 }
 
-void createVectorAssignmentToMachinesArray(int totalNumPoints,
-	int  numOfMachines,
+//for load balancing
+void createPointAssignmentToProcArray(int totalNumPoints,
+	int  numOfProcs,
 	int  numDims,
-	int *sendCounts,
-	int *displs)
+	int *sendCounts,	//[numOfProcs] item i will hold the num of elements proc i will receive in scatterv 
+	int *displs)		//[numOfProcs] the offsets between the data of each proc
 {
 	int i, remainder, index, *pointCounterForMachine;
 
-	pointCounterForMachine = (int*)malloc(numOfMachines * sizeof(int));
+	pointCounterForMachine = (int*)malloc(numOfProcs * sizeof(int));
 
-	remainder = totalNumPoints % numOfMachines;
+	remainder = totalNumPoints % numOfProcs;
 	index = 0;
 
-	for (i = 0; i < numOfMachines; ++i)
+	for (i = 0; i < numOfProcs; ++i)
 	{
-		pointCounterForMachine[i] = totalNumPoints / numOfMachines;
+		pointCounterForMachine[i] = totalNumPoints / numOfProcs;
 		if (remainder > 0)
 		{
 			pointCounterForMachine[i]++;

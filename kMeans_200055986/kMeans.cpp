@@ -1,32 +1,32 @@
 #include "kMeans.h"
 
-int k_means(double    **vectors,     			 //in:[numVectors][numDims] vectors from division of file
-	double     *devVectors,				 //in:[numVectors*numDims]  pointer to vectors on GPU
+int k_means(double    **points,     	//in:[numPoints][numDims] points from division of file
+	double     *devPoints,				//in:[numPoints * numDims]  pointer to points on GPU
 	int        numDims,
-	int        numVectors,
-	int        numClusters,				 //k
-	int        limit,   			 	 //max num of iterations dictated by file	
-	int       *vectorToClusterRelevance, //out:[numVectors] for each vector states the cluster index to which it belongs
-	double    **clusters,    			 //out:[numClusters][numDims] contains clusters centers
-	MPI_Comm   comm)
+	int        numPoints,
+	int        numClusters,				//k
+	int        limit,   			 	//max num of iterations dictated by file	
+	int       *pointToClusterRelevance, //out:[numPoints] for each point states the cluster index to which it belongs
+	double    **clusters,    			//out:[numClusters][numDims] contains clusters centers
+	MPI_Comm   comm)					//communicator
 {
 	int      i, j, index, loop = 0;
-	int		 sumDelta = 0;			// the sum of all the machines delta. indicates to stop the iteration
-	int     *cudaVToCRelevance;		//[numvectors] used for CUDA kernels
+	int		 sumDelta = 0;			// the sum of all the procs delta. indicates to stop the iteration
+	int     *cudaPToCRelevance;		//[numPoints] used for CUDA kernels
 	int     *newClusterSize;		//[numClusters]: no. vectors assigned in each new cluster                             
 	int     *clusterSize;			//[numClusters]: temp buffer for MPI reduction 
-	int      delta;					//num of vectors that changed their cluster relevance
+	int      delta;					//num of points that changed their cluster relevance
 	double  **newClusters;			//[numClusters][numDims] used to calculate new cluster means
 
-									//initialize vectorToClusterRelevance[]
-	for (i = 0; i < numVectors; ++i)
+	//initialize pointToClusterRelevance[]
+	for (i = 0; i < numPoints; ++i)
 	{
-		vectorToClusterRelevance[i] = -1;
+		pointToClusterRelevance[i] = -1;
 	}
 
 	//initializing memory 
-	cudaVToCRelevance = (int*)malloc(numVectors * sizeof(int));
-	assert(cudaVToCRelevance != NULL);
+	cudaPToCRelevance = (int*)malloc(numPoints * sizeof(int));
+	assert(cudaPToCRelevance != NULL);
 
 	newClusterSize = (int*)calloc(numClusters, sizeof(int));
 	assert(newClusterSize != NULL);
@@ -42,30 +42,30 @@ int k_means(double    **vectors,     			 //in:[numVectors][numDims] vectors from
 	{
 		newClusters[i] = newClusters[i - 1] + numDims;
 	}
-
+	
 	//start the k-means iterations
 	do
 	{
 		delta = 0;
 
-		computeClustersMeansWithCUDA(devVectors, clusters, numVectors, numClusters, numDims, cudaVToCRelevance);
+		computeClustersMeansWithCUDA(devPoints, clusters, numPoints, numClusters, numDims, cudaPToCRelevance);
 
-		for (i = 0; i < numVectors; ++i)
+		for (i = 0; i < numPoints; ++i)
 		{
 			//check if any vector changed his cluster
-			if (vectorToClusterRelevance[i] != cudaVToCRelevance[i])
+			if (pointToClusterRelevance[i] != cudaPToCRelevance[i])
 			{
 				delta++;
-				vectorToClusterRelevance[i] = cudaVToCRelevance[i];
+				pointToClusterRelevance[i] = cudaPToCRelevance[i];
 			}
 
 			//index = index of cluster that vector i now belongs to 
-			index = cudaVToCRelevance[i];
+			index = cudaPToCRelevance[i];
 
 			// update new cluster center: sum of vectors that belong to it 
 			newClusterSize[index]++;
 			for (j = 0; j < numDims; ++j)
-				newClusters[index][j] += vectors[i][j];
+				newClusters[index][j] += points[i][j];
 		}
 
 		//each proc shares his delta with others
@@ -98,12 +98,12 @@ int k_means(double    **vectors,     			 //in:[numVectors][numDims] vectors from
 	free(newClusters);
 	free(newClusterSize);
 	free(clusterSize);
-	free(cudaVToCRelevance);
+	free(cudaPToCRelevance);
 
 	return 0;
 }
 
-cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, double **vectorSpeeds, double **devSpeeds, int numVectors, int numDims)
+cudaError_t copyPointDataToGPU(double **vectors, double **devVectors, double **vectorSpeeds, double **devSpeeds, int numVectors, int numDims)
 {
 	cudaError_t cudaStatus;
 
@@ -151,14 +151,21 @@ cudaError_t copyVectorsToGPU(double **vectors, double **devVectors, double **vec
 
 
 
-cudaError_t FreeVectorsOnGPU(double **devVectors)
+cudaError_t FreePointDataOnGPU(double **devPoints, double **devPointSpeeds)
 {
 	cudaError_t cudaStatus;
-	cudaStatus = cudaFree(*devVectors);
 
+	cudaStatus = cudaFree(*devPoints);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaFree failed!");
 	}
+
+	cudaStatus = cudaFree(*devPointSpeeds);
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaFree failed!");
+	}
+
 	return cudaStatus;
 }

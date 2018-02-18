@@ -7,9 +7,9 @@
 #include <assert.h>
 #include <string.h>
 
-double* readVectorsFromFile(const char *fileName,           //file containing the data set
+double* readPointsDataFromFile(const char *fileName,  //file containing the data set
 	int			numDims,
-	int        *numVectors,         //number of given vectors in file
+	int        *numPoints,			//number of given points in file
 	int		   *numOfClustersToFind,
 	int			*t,
 	double		*dt,

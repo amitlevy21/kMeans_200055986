@@ -8,25 +8,25 @@
 #include <omp.h>
 #include "kernel.h"
 
-int k_means(double    **vectors,     			 //in:[numVectors][numDims] vectors from division of file
-	double     *devVectors,				 //in:[numVectors*numDims]  pointer to vectors on GPU
+int k_means(double    **points,     	//in:[numPoints][numDims] points from division of file
+	double     *devPoints,				//in:[numPoints * numDims]  pointer to points on GPU
 	int        numDims,
-	int        numVectors,
-	int        numClusters,				 //k
-	int        limit,   			 	 //max num of iterations dictated by file	
-	int       *vectorToClusterRelevance, //out:[numVectors] for each vector states the cluster index to which it belongs
-	double    **clusters,    			 //out:[numClusters][numDims] contains clusters centers
-	MPI_Comm   comm);					 //communicator
+	int        numPoints,
+	int        numClusters,				//k
+	int        limit,   			 	//max num of iterations dictated by file	
+	int       *pointToClusterRelevance, //out:[numPoints] for each point states the cluster index to which it belongs
+	double    **clusters,    			//out:[numClusters][numDims] contains clusters centers
+	MPI_Comm   comm);					//communicator
 
 
-cudaError_t copyVectorsToGPU(double **vectors,		//[numVectors][numDims] vectors that each proc has
-	double **devVectors,	//[numVectors*numDims]  pointer to vectors on GPU
-	double **vectorSpeeds,	//[numVectors][numDims] vector speeds of each proc
-	double **devSpeeds,		//[numVectors*numDims]  pointer to speeds on GPU
-	int numVectors,
+cudaError_t copyPointDataToGPU(double **points,		//[numPoints][numDims] points that each proc has
+	double **devPoints,			//[numPoints * numDims]  pointer to points on GPU
+	double **pointSpeeds,		//[numPoints][numDims] point speeds of each proc
+	double **devPointSpeeds,	//[numPoints * numDims]  pointer to speeds on GPU
+	int numPoints,
 	int numDims);
 
-cudaError_t FreeVectorsOnGPU(double **devVectors);
+cudaError_t FreePointDataOnGPU(double **devPoints, double **devPointSpeeds);
 
 
 #endif // !__K_MEANS_H
