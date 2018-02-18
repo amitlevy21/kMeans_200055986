@@ -26,7 +26,8 @@ __global__ void findMinDistanceForEachVectorFromCluster(int    numVectors,
 	double *devDistsVectorsToClusters,
 	int   *devVToCRelevance);			//[numVectors] contains indexes of closest vector to cluster
 
-cudaError_t movePointsWithCuda(double *devPoints, // points that were copied to device
+cudaError_t movePointsWithCuda(double **vectors, //cpu points that will be updated with new coords
+	double *devPoints, // points that were copied to device
 	double *devSpeeds,		//speeds that were copied to device
 	int numOfPoints,
 	int numDims,

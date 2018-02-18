@@ -9,13 +9,14 @@
 #define DATA_FROM_FILE_SIZE 4
 
 
-void createVectorAssignmentToMachinesArray(int  totalNumVectors,
+void createVectorAssignmentToMachinesArray(int totalNumPoints,
 	int  numOfMachines,
 	int  numDims,
 	int *sendCounts,
 	int *displs);
 
 void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt);
+void printPoints(double *points, int numOfPoints, int numDims);
 
 int main(int argc, char *argv[])
 {
@@ -186,17 +187,19 @@ int main(int argc, char *argv[])
 		//save GPU run time - do not move the points with 0*vi
 		if (currentT != 0)
 		{
-			//update the points on GPU
-			movePointsWithCuda(devVectors, devVectorSpeeds, numVectorsInMachine, numDims, dt);
 			
+			//update the points on GPU
+			movePointsWithCuda(vectorsEachProc, devVectors, devVectorSpeeds, numVectorsInMachine, numDims, dt);
+
+			printPoints(vectorsEachProc[0], numVectorsInMachine, numDims);
+
 			//update the points on CPU
-			movePointsWithOMP(vectorsEachProc, pointsSpeedsEachProc, numVectorsInMachine, numDims, dt);
+			//movePointsWithOMP(vectorsEachProc, pointsSpeedsEachProc, numVectorsInMachine, numDims, dt);
 		}
 
 		/* start the core computation -------------------------------------------*/
 		int check = k_means(vectorsEachProc, devVectors, numDims, numVectorsInMachine, k, iterationLimit, vToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
 		
-
 		MPI_Gatherv(vToCRelevanceEachProc, numVectorsInMachine, MPI_INT, vectorToClusterRelevance,
 			recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
 		
@@ -213,13 +216,6 @@ int main(int argc, char *argv[])
 
 		//broadcasting the found quality to all procs because it's a condition to stop the do..while loop
 		MPI_Bcast(&clusterGroupQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-		/*if (clusterGroupQuality > requiredQuality)
-		{
-			free(clusters[0]);
-			free(clusters);
-			free(vToCRelevanceEachProc);
-		}*/
 
 		currentT += dt;
 		if (myid == 0)
@@ -252,29 +248,29 @@ int main(int argc, char *argv[])
 	MPI_Finalize();
 }
 
-void createVectorAssignmentToMachinesArray(int  totalNumVectors,
+void createVectorAssignmentToMachinesArray(int totalNumPoints,
 	int  numOfMachines,
 	int  numDims,
 	int *sendCounts,
 	int *displs)
 {
-	int i, remainder, index, *vectorCounterForMachine;
+	int i, remainder, index, *pointCounterForMachine;
 
-	vectorCounterForMachine = (int*)malloc(numOfMachines * sizeof(int));
+	pointCounterForMachine = (int*)malloc(numOfMachines * sizeof(int));
 
-	remainder = totalNumVectors % numOfMachines;
+	remainder = totalNumPoints % numOfMachines;
 	index = 0;
 
 	for (i = 0; i < numOfMachines; ++i)
 	{
-		vectorCounterForMachine[i] = totalNumVectors / numOfMachines;
+		pointCounterForMachine[i] = totalNumPoints / numOfMachines;
 		if (remainder > 0)
 		{
-			vectorCounterForMachine[i]++;
+			pointCounterForMachine[i]++;
 			remainder--;
 		}
 
-		sendCounts[i] = vectorCounterForMachine[i] * numDims;
+		sendCounts[i] = pointCounterForMachine[i] * numDims;
 		displs[i] = index;
 		index += sendCounts[i];
 	}
@@ -291,6 +287,23 @@ void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int nu
 		{
 			points[i][j] += speeds[i][j] * dt;
 		}
+	}
+}
+
+void printPoints(double *points, int numOfPoints, int numDims)
+{
+	int i, j;
+
+	for  (i = 0; i < numOfPoints; i++)
+	{
+		for (j = 0; j < numDims; j++)
+		{
+			printf("%lf ", points[i*numDims + j]);
+			fflush(stdout);
+		}
+
+		printf("\n");
+		fflush(stdout);
 	}
 }
 

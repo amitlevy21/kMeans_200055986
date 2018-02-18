@@ -76,7 +76,8 @@ __global__ void findMinDistanceForEachVectorFromCluster(int    numVectors,
 	devVToCRelevance[numThreadsInBlock*blockId + xid] = minIndex;
 }
 
-cudaError_t movePointsWithCuda(double *devPoints, // points that were copied to device
+cudaError_t movePointsWithCuda(double **points,	//cpu points that will be updated with new coords
+	double *devPoints, // points that were copied to device
 	double *devSpeeds,		//speeds that were copied to device
 	int numOfPoints,
 	int numDims,
@@ -111,6 +112,10 @@ cudaError_t movePointsWithCuda(double *devPoints, // points that were copied to 
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
 		goto Error;
 	}
+	
+	//update the points from gpu to cpu
+	cudaStatus = cudaMemcpy((void**)points[0], devPoints, numOfPoints * numDims * sizeof(double), cudaMemcpyDeviceToHost);
+	
 
 Error:
 	return cudaStatus;
