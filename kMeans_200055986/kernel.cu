@@ -25,33 +25,34 @@ __global__ void movePoints(double *devPoints, // points that were copied to devi
 	}
 }
 
-__global__ void computeDistancesArray(double *devVectors,
+__global__ void computeDistancesArray(double *devPoints,
 	double *devClusters,
-	int    numVectors,
+	int    numPoints,
 	int    numClusters,
 	int    numThreadsInBlock,
 	int    numDims,
-	double *devDistsVectorsToClusters)
+	double *devDistsPointsToClusters)
 {
 	int i;
 	int blockID = blockIdx.x;
 	double result = 0;
 
-	if ((blockID == gridDim.x - 1) && (numVectors % blockDim.x <= threadIdx.x)) { return; } //dismiss spare threads
+	if ((blockID == gridDim.x - 1) && (numPoints % blockDim.x <= threadIdx.x)) { return; } //dismiss spare threads
 
-																							//each thread computes a distance in a matrix of distances
+	//each thread computes a distance in a matrix of distances
 	for (i = 0; i < numDims; ++i)
 	{
-		result += (devVectors[(blockID*numThreadsInBlock + threadIdx.x)*numDims + i] - devClusters[threadIdx.y*numDims + i]) *  (devVectors[(blockID*numThreadsInBlock + threadIdx.x)*numDims + i] - devClusters[threadIdx.y*numDims + i]);
+		result += (devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] - devClusters[threadIdx.y * numDims + i]) * (devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] - devClusters[threadIdx.y * numDims + i]);
 	}
-	devDistsVectorsToClusters[numVectors*threadIdx.y + (blockID*numThreadsInBlock + threadIdx.x)] = result;
+	//its not suppose to be sqrt(result) ?
+	devDistsPointsToClusters[numPoints*threadIdx.y + (blockID * numThreadsInBlock + threadIdx.x)] = result;
 }
 
-__global__ void findMinDistanceForEachVectorFromCluster(int    numVectors,
+__global__ void findMinDistanceForEachPointFromCluster(int numPoints,
 	int    numClusters,
 	int    numThreadsInBlock,
-	double *devDistsVectorsToClusters,
-	int   *devVToCRelevance)
+	double *devDistsPointsToClusters,
+	int   *devPToCRelevance)
 {
 	int i;
 	int xid = threadIdx.x;
@@ -59,13 +60,13 @@ __global__ void findMinDistanceForEachVectorFromCluster(int    numVectors,
 	double minIndex = 0;
 	double minDistance, tempDistance;
 
-	if ((blockIdx.x == gridDim.x - 1) && (numVectors % blockDim.x <= xid)) { return; }  //dismiss spare threads
+	if ((blockIdx.x == gridDim.x - 1) && (numPoints % blockDim.x <= xid)) { return; }  //dismiss spare threads
 
-	minDistance = devDistsVectorsToClusters[(numThreadsInBlock * blockId) + xid];
+	minDistance = devDistsPointsToClusters[(numThreadsInBlock * blockId) + xid];
 
 	for (i = 1; i < numClusters; ++i)
 	{
-		tempDistance = devDistsVectorsToClusters[(numThreadsInBlock * blockId) + xid + (i*numVectors)];
+		tempDistance = devDistsPointsToClusters[(numThreadsInBlock * blockId) + xid + (i*numPoints)];
 		if (minDistance > tempDistance)
 		{
 			minIndex = i;
@@ -73,11 +74,11 @@ __global__ void findMinDistanceForEachVectorFromCluster(int    numVectors,
 		}
 	}
 
-	devVToCRelevance[numThreadsInBlock*blockId + xid] = minIndex;
+	devPToCRelevance[numThreadsInBlock * blockId + xid] = minIndex;
 }
 
 cudaError_t movePointsWithCuda(double **points,	//cpu points that will be updated with new coords
-	double *devPoints, // points that were copied to device
+	double *devPoints, 		//points that were copied to device
 	double *devSpeeds,		//speeds that were copied to device
 	int numOfPoints,
 	int numDims,
@@ -115,18 +116,17 @@ cudaError_t movePointsWithCuda(double **points,	//cpu points that will be update
 	
 	//update the points from gpu to cpu
 	cudaStatus = cudaMemcpy((void**)points[0], devPoints, numOfPoints * numDims * sizeof(double), cudaMemcpyDeviceToHost);
-	
 
 Error:
 	return cudaStatus;
 }
 
-cudaError_t computeClustersMeansWithCUDA(double *devVectors,
+cudaError_t classifyPointsToClusters(double *devPoints,
 	double **clusters,
-	int     numVectors,
+	int     numPoints,
 	int     numClusters,
 	int		numDims,
-	int    *vToCRelevance)
+	int    *pToCRelevance)
 {
 	cudaError_t cudaStatus;
 	cudaDeviceProp devProp; //used to retrieve specs from GPU
@@ -136,18 +136,18 @@ cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 
 	cudaGetDeviceProperties(&devProp, 0); // 0 is for device 0
 
-										  //configuring kerenl params
+	//configuring kerenl params
 	numThreadsInBlock = devProp.maxThreadsPerBlock / numClusters;
 	dim3 dim(numThreadsInBlock, numClusters);
-	numBlocks = numVectors / numThreadsInBlock;
+	numBlocks = numPoints / numThreadsInBlock;
 
-	if (numVectors % numThreadsInBlock > 0) { numBlocks++; }
+	if (numPoints % numThreadsInBlock > 0) { numBlocks++; }
 
 	double *devClusters;
-	double *devDistsVectorsToClusters = 0;
-	int   *devVToCRelevance = 0;
+	double *devDistsPointsToClusters = 0;
+	int   *devPToCRelevance = 0;
 
-	// Allocate GPU buffers for three vectors (two input, one output) 
+	// Allocate GPU buffers for three points (two input, one output) 
 	cudaStatus = cudaMalloc((void**)&devClusters, numClusters * numDims * sizeof(double));
 	if (cudaStatus != cudaSuccess)
 	{
@@ -155,14 +155,14 @@ cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 		goto Error;
 	}
 
-	cudaStatus = cudaMalloc((void**)&devDistsVectorsToClusters, numClusters * numVectors * sizeof(double));
+	cudaStatus = cudaMalloc((void**)&devDistsPointsToClusters, numClusters * numPoints * sizeof(double));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMalloc failed!");
 		goto Error;
 	}
 
-	cudaStatus = cudaMalloc((void**)&devVToCRelevance, numVectors * sizeof(int));
+	cudaStatus = cudaMalloc((void**)&devPToCRelevance, numPoints * sizeof(int));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMalloc failed!");
@@ -177,7 +177,7 @@ cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 	}
 
 	//launch kernels//
-	computeDistancesArray << <numBlocks, dim >> > (devVectors, devClusters, numVectors, numClusters, numThreadsInBlock, numDims, devDistsVectorsToClusters);
+	computeDistancesArray << <numBlocks, dim >> > (devPoints, devClusters, numPoints, numClusters, numThreadsInBlock, numDims, devDistsPointsToClusters);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -197,10 +197,10 @@ cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 
 	//reconfiguring params for next kernel
 	numThreadsInBlock = devProp.maxThreadsPerBlock;
-	numBlocks = numVectors / numThreadsInBlock;
-	if (numVectors % numThreadsInBlock > 0) { numBlocks++; }
+	numBlocks = numPoints / numThreadsInBlock;
+	if (numPoints % numThreadsInBlock > 0) { numBlocks++; }
 
-	findMinDistanceForEachVectorFromCluster << <numBlocks, numThreadsInBlock >> > (numVectors, numClusters, numThreadsInBlock, devDistsVectorsToClusters, devVToCRelevance);
+	findMinDistanceForEachPointFromCluster << <numBlocks, numThreadsInBlock >> > (numPoints, numClusters, numThreadsInBlock, devDistsPointsToClusters, devPToCRelevance);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -219,7 +219,7 @@ cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 	}
 
 	// Copy output from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(vToCRelevance, devVToCRelevance, numVectors * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(pToCRelevance, devPToCRelevance, numPoints * sizeof(int), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemcpy failed!");
@@ -229,8 +229,8 @@ cudaError_t computeClustersMeansWithCUDA(double *devVectors,
 
 Error:
 	cudaFree(devClusters);
-	cudaFree(devDistsVectorsToClusters);
-	cudaFree(devVToCRelevance);
+	cudaFree(devDistsPointsToClusters);
+	cudaFree(devPToCRelevance);
 
 	return cudaStatus;
 }

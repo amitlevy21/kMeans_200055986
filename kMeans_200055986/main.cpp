@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
 	//each proc writes its points and their speeds to the GPU for the k-Means
 	copyPointDataToGPU(pointsEachProc, &devPoints, pointsSpeedsEachProc, &devPointSpeeds, numPointsInProc, numDims);
 	
-	//vectorToClusterRelevance - the cluster id for each vector
+	//pointToClusterRelevance - the cluster id for each point
 	pToCRelevanceEachProc = (int*)malloc(numPointsInProc * sizeof(int));
 	assert(pToCRelevanceEachProc != NULL);
 
@@ -171,7 +171,7 @@ int main(int argc, char *argv[])
 		clusters[i] = clusters[i - 1] + numDims;
 	}
 
-	//p0 picks first k elements in vectorsReadFile[] as initial cluster centers
+	//p0 picks first k elements in pointsReadFile[] as initial cluster centers
 	if (myid == 0)
 	{
 		for (i = 0; i < k; ++i)
@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
 			printPoints(pointsEachProc[0], numPointsInProc, numDims);
 
 			//update the points on CPU
-			//movePointsWithOMP(vectorsEachProc, pointsSpeedsEachProc, numVectorsInMachine, numDims, dt);
+			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numpointsInMachine, numDims, dt);
 		}
 
 		/* start the core computation -------------------------------------------*/

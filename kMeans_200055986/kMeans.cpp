@@ -13,7 +13,7 @@ int k_means(double    **points,     	//in:[numPoints][numDims] points from divis
 	int      i, j, index, loop = 0;
 	int		 sumDelta = 0;			// the sum of all the procs delta. indicates to stop the iteration
 	int     *cudaPToCRelevance;		//[numPoints] used for CUDA kernels
-	int     *newClusterSize;		//[numClusters]: no. vectors assigned in each new cluster                             
+	int     *newClusterSize;		//[numClusters]: no. points assigned in each new cluster                             
 	int     *clusterSize;			//[numClusters]: temp buffer for MPI reduction 
 	int      delta;					//num of points that changed their cluster relevance
 	double  **newClusters;			//[numClusters][numDims] used to calculate new cluster means
@@ -48,22 +48,22 @@ int k_means(double    **points,     	//in:[numPoints][numDims] points from divis
 	{
 		delta = 0;
 
-		computeClustersMeansWithCUDA(devPoints, clusters, numPoints, numClusters, numDims, cudaPToCRelevance);
+		classifyPointsToClusters(devPoints, clusters, numPoints, numClusters, numDims, cudaPToCRelevance);
 
 		for (i = 0; i < numPoints; ++i)
 		{
-			//check if any vector changed his cluster
+			//check if any point changed his cluster
 			if (pointToClusterRelevance[i] != cudaPToCRelevance[i])
 			{
 				delta++;
 				pointToClusterRelevance[i] = cudaPToCRelevance[i];
 			}
 
-			//index = index of cluster that vector i now belongs to 
+			//index = index of cluster that point i now belongs to 
 			index = cudaPToCRelevance[i];
 
-			// update new cluster center: sum of vectors that belong to it 
 			newClusterSize[index]++;
+			// update new cluster center: sum of points that belong to it 
 			for (j = 0; j < numDims; ++j)
 				newClusters[index][j] += points[i][j];
 		}
@@ -71,10 +71,11 @@ int k_means(double    **points,     	//in:[numPoints][numDims] points from divis
 		//each proc shares his delta with others
 		MPI_Allreduce(&delta, &sumDelta, 1, MPI_INT, MPI_SUM, comm);
 
-		if (sumDelta == 0) { break; } //if no vector in the entire file changed his cluster - satisfies kMeans conditions
+		if (sumDelta == 0) { break; } //if no point in the entire file changed his cluster - satisfies kMeans conditions
 
-									  //sum all vectors in newClusters 
-		MPI_Allreduce(newClusters[0], clusters[0], numClusters*numDims, MPI_DOUBLE, MPI_SUM, comm);
+		//sum all points in newClusters 
+		MPI_Allreduce(newClusters[0], clusters[0], numClusters * numDims, MPI_DOUBLE, MPI_SUM, comm);
+		//ask moshe
 		MPI_Allreduce(newClusterSize, clusterSize, numClusters, MPI_INT, MPI_SUM, comm);
 
 		//average the sum and replace old cluster centers with newClusters
@@ -103,7 +104,7 @@ int k_means(double    **points,     	//in:[numPoints][numDims] points from divis
 	return 0;
 }
 
-cudaError_t copyPointDataToGPU(double **vectors, double **devVectors, double **vectorSpeeds, double **devSpeeds, int numVectors, int numDims)
+cudaError_t copyPointDataToGPU(double **points, double **devpoints, double **pointSpeeds, double **devSpeeds, int numpoints, int numDims)
 {
 	cudaError_t cudaStatus;
 
@@ -114,36 +115,36 @@ cudaError_t copyPointDataToGPU(double **vectors, double **devVectors, double **v
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 	}
 
-	//allocating memory on GPU for vectors
-	cudaStatus = cudaMalloc((void**)devVectors, numVectors * numDims * sizeof(double));
+	//allocating memory on GPU for points
+	cudaStatus = cudaMalloc((void**)devpoints, numpoints * numDims * sizeof(double));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMalloc failed!");
-		cudaFree(devVectors);
+		cudaFree(devpoints);
 	}
 
-	//allocating memory on GPU for vectors speeds
-	cudaStatus = cudaMalloc((void**)devSpeeds, numVectors * numDims * sizeof(double));
+	//allocating memory on GPU for points speeds
+	cudaStatus = cudaMalloc((void**)devSpeeds, numpoints * numDims * sizeof(double));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMalloc failed!");
-		cudaFree(devVectors);
+		cudaFree(devpoints);
 	}
 
-	//copying the vectors from host to GPU
-	cudaStatus = cudaMemcpy(*devVectors, vectors[0], numVectors * numDims * sizeof(double), cudaMemcpyHostToDevice);
+	//copying the points from host to GPU
+	cudaStatus = cudaMemcpy(*devpoints, points[0], numpoints * numDims * sizeof(double), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemcpy failed!");
-		cudaFree(devVectors);
+		cudaFree(devpoints);
 	}
 
-	//copying the vectors speeds from host to GPU
-	cudaStatus = cudaMemcpy(*devSpeeds, vectorSpeeds[0], numVectors * numDims * sizeof(double), cudaMemcpyHostToDevice);
+	//copying the points speeds from host to GPU
+	cudaStatus = cudaMemcpy(*devSpeeds, pointSpeeds[0], numpoints * numDims * sizeof(double), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemcpy failed!");
-		cudaFree(devVectors);
+		cudaFree(devpoints);
 	}
 
 	return cudaStatus;
