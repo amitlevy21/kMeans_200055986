@@ -195,8 +195,6 @@ int main(int argc, char *argv[])
 			//update the points on GPU
 			movePointsWithCuda(pointsEachProc, devPoints, devPointSpeeds, numPointsInProc, numDims, dt);
 
-			printPoints(pointsEachProc[0], numPointsInProc, numDims);
-
 			//update the points on CPU
 			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numpointsInMachine, numDims, dt);
 		}
@@ -206,7 +204,6 @@ int main(int argc, char *argv[])
 		
 		MPI_Gatherv(pToCRelevanceEachProc, numPointsInProc, MPI_INT, pointToClusterRelevance,
 			recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
-		
 
 		//computing cluster group quality
 		if (myid == 0)

@@ -6,16 +6,15 @@
 #include <omp.h>
 #include <assert.h>
 
+double euclidDistanceForQuality(int numDims,  	//no. dimensions 
+	double *p1,   	//[numDims] 
+	double *p2);   	//[numDims] 
 
-double euclidDistanceForQuality(int    dim,  	//no. dimensions 
-	double *v1,   	//[numdims] 
-	double *v2);   	//[numdims]
-
-double* computeClustersDiameters(double *vectors,	//complete set of vectors from file
-	int    numVectors,
+double* computeClustersDiameters(double *points,	//complete set of points from file
+	int    numPoints,
 	int    numClusters,//some k
 	int    numDims,
-	int    *vToCR);	//[numVectors] contains cluster relevancy
+	int    *pToCR);	//[numPoints] contains cluster relevancy
 
 double computeClusterGroupQuality(double **clusters, //[numClusters][numDims] contains all cluster centers
 	int numClusters,

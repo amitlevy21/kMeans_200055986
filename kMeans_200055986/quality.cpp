@@ -1,28 +1,26 @@
 
 #include "quality.h"
 
-double euclidDistanceForQuality(int    dim,  	//no. dimensions 
-	double *v1,   	//[numdims] 
-	double *v2)   	//[numdims] 
+double euclidDistanceForQuality(int numDims,  	//no. dimensions 
+	double *p1,   	//[numDims] 
+	double *p2)   	//[numDims] 
 {
 	int i;
 	double dist = 0.0;
 
-	for (i = 0; i < dim; ++i)
+	for (i = 0; i < numDims; ++i)
 	{
-		dist += (v1[i] - v2[i]) * (v1[i] - v2[i]);
+		dist += (p1[i] - p2[i]) * (p1[i] - p2[i]);
 	}
 
 	return sqrt(dist);
 }
 
-
-
-double* computeClustersDiameters(double *vectors,
-	int    numVectors,
+double* computeClustersDiameters(double *points,
+	int    numPoints,
 	int    numClusters,
 	int    numDims,
-	int    *vToCR)
+	int    *pToCR)
 {
 	double diameter, dist, *diametersThreads, *diameters;
 	int i, j, numThreads, tid, stride;
@@ -36,18 +34,18 @@ double* computeClustersDiameters(double *vectors,
 	diameters = (double*)malloc(numClusters * sizeof(double));
 
 #pragma omp parallel for private(j, tid, dist, stride) shared(diametersThreads)
-	for (i = 0; i < numVectors; ++i)
+	for (i = 0; i < numPoints; ++i)
 	{
 		tid = omp_get_thread_num();
 		stride = tid * numClusters;
 
-		for (j = i + 1; j < numVectors; ++j)
+		for (j = i + 1; j < numPoints; ++j)
 		{
-			if (vToCR[i] == vToCR[j])
+			if (pToCR[i] == pToCR[j])
 			{
-				dist = euclidDistanceForQuality(numDims, vectors + (i * numDims), vectors + (j * numDims));
-				if (dist > diametersThreads[stride + vToCR[i]])
-					diametersThreads[stride + vToCR[i]] = dist;
+				dist = euclidDistanceForQuality(numDims, points + (i * numDims), points + (j * numDims));
+				if (dist > diametersThreads[stride + pToCR[i]])
+					diametersThreads[stride + pToCR[i]] = dist;
 			}
 		}
 
