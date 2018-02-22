@@ -23,11 +23,11 @@ __global__ void computeDistancesArray(double *devPoints,	//[numPoints * numDims]
 __global__ void findMinDistanceForEachPointFromCluster(int numPoints,
 	int    numClusters,
 	int    numThreadsInBlock,
-	double *devDistsPointsToClusters,
+	double *devDistsPointsToClusters,	
 	int   *devPToCRelevance);			//[numPoints] contains indexes of closest point to cluster
 
 cudaError_t movePointsWithCuda(double **Points, //cpu points that will be updated with new coords
-	double *devPoints, // points that were copied to device
+	double *devPoints, 		// points that were copied to device
 	double *devSpeeds,		//speeds that were copied to device
 	int numOfPoints,
 	int numDims,
@@ -38,6 +38,6 @@ cudaError_t classifyPointsToClusters(double *devPoints,		//in: [numPoints * numD
 	int     numPoints,
 	int     numClusters,
 	int	 	numDims,
-	int    *pToCRelevance);	//out: [numPoints] contains indexes of closest point to cluster
+	int    *pToCRelevance);		//out: [numPoints] contains indexes of closest point to cluster
 
 #endif // !__KERNEL_H_

@@ -7,18 +7,18 @@
 #include <assert.h>
 
 double euclidDistanceForQuality(int numDims,  	//no. dimensions 
-	double *p1,   	//[numDims] 
-	double *p2);   	//[numDims] 
+	double *p1,   		//[numDims] 
+	double *p2);   		//[numDims] 
 
 double* computeClustersDiameters(double *points,	//complete set of points from file
 	int    numPoints,
-	int    numClusters,//some k
+	int    numClusters,		
 	int    numDims,
-	int    *pToCR);	//[numPoints] contains cluster relevancy
+	int    *pToCR);			//[numPoints] contains cluster relevancy
 
 double computeClusterGroupQuality(double **clusters, //[numClusters][numDims] contains all cluster centers
 	int numClusters,
 	int numDims,
-	double *diameters);//[numClusters] holds all diameters of clusters
+	double *diameters);		//[numClusters] holds all diameters of clusters
 
 #endif // !__QUALITY_H_

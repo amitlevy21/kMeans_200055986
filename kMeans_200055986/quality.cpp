@@ -1,7 +1,7 @@
 
 #include "quality.h"
 
-double euclidDistanceForQuality(int numDims,  	//no. dimensions 
+double euclidDistanceForQuality(int numDims,  //no. dimensions 
 	double *p1,   	//[numDims] 
 	double *p2)   	//[numDims] 
 {

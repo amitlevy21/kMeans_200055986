@@ -8,6 +8,7 @@
 
 #define DATA_FROM_FILE_INT_SIZE 4
 #define DATA_FROM_FILE_DOUBLE_SIZE 2
+#define P0 0
 
 
 void createPointAssignmentToProcArray(int totalNumPoints,
@@ -18,6 +19,7 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 
 void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt);
 void printPoints(double *points, int numOfPoints, int numDims);
+void pickFirstKAsInitialClusterCenters(double** clusters, int k, double** points, int numOfPoints, int numDims);
 
 int main(int argc, char *argv[])
 {
@@ -119,7 +121,7 @@ int main(int argc, char *argv[])
 	requiredQuality = dataFromFileDouble[0];
 	dt = dataFromFileDouble[1];
 
-	//compute the chunck of points each machine gets
+	//compute the chunck of points each proc gets
 	//set values to sendCounts & displsScatter
 	createPointAssignmentToProcArray(totalNumPoints, numprocs, numDims, sendCounts, displsScatter);
 
@@ -128,10 +130,10 @@ int main(int argc, char *argv[])
 	displsGather[0] = 0;
 	for (i = 1; i < numprocs; ++i) { displsGather[i] = displsGather[i - 1] + recvCounts[i - 1]; }
 
-	//sendCount[myid] is number of doubles every machine gets
+	//sendCount[myid] is number of doubles every proc gets
 	numPointsInProc = sendCounts[myid] / numDims;
 
-	//allocate memory for storing points on each machine
+	//allocate memory for storing points on each proc
 	pointsEachProc = (double**)malloc(numPointsInProc * sizeof(double*));
 	assert(pointsEachProc != NULL);
 	pointsEachProc[0] = (double*)malloc(numPointsInProc * numDims * sizeof(double));
@@ -148,10 +150,10 @@ int main(int argc, char *argv[])
 		pointsSpeedsEachProc[i] = pointsSpeedsEachProc[i - 1] + numDims;
 	}
 
-	//scatter points to all machines
+	//scatter points to all procs
 	MPI_Scatterv(pointsReadFile, sendCounts, displsScatter, MPI_DOUBLE, pointsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
-	//scatter point speeds to all machines
+	//scatter point speeds to all procs
 	MPI_Scatterv(pointsSpeeds, sendCounts, displsScatter, MPI_DOUBLE, pointsSpeedsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
 	//each proc writes its points and their speeds to the GPU for the k-Means
@@ -172,7 +174,7 @@ int main(int argc, char *argv[])
 	}
 
 	//p0 picks first k elements in pointsReadFile[] as initial cluster centers
-	if (myid == 0)
+	if (myid == P0)
 	{
 		for (i = 0; i < k; ++i)
 		{
@@ -191,12 +193,11 @@ int main(int argc, char *argv[])
 		//save GPU run time - do not move the points with 0*vi
 		if (currentT != 0)
 		{
-			
 			//update the points on GPU
 			movePointsWithCuda(pointsEachProc, devPoints, devPointSpeeds, numPointsInProc, numDims, dt);
 
 			//update the points on CPU
-			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numpointsInMachine, numDims, dt);
+			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numpointsInProc, numDims, dt);
 		}
 
 		/* start the core computation -------------------------------------------*/
@@ -206,7 +207,7 @@ int main(int argc, char *argv[])
 			recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
 
 		//computing cluster group quality
-		if (myid == 0)
+		if (myid == P0)
 		{
 			diameters = computeClustersDiameters(pointsReadFile, totalNumPoints, k, numDims, pointToClusterRelevance);
 
@@ -219,7 +220,7 @@ int main(int argc, char *argv[])
 		MPI_Bcast(&currentQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 		currentT += dt;
-		if (myid == 0)
+		if (myid == P0)
 		{
 			printf("dt = %lf  qm = %lf\n", currentT, currentQuality);
 			fflush(stdout);
@@ -228,7 +229,7 @@ int main(int argc, char *argv[])
 	} while (currentT < t && currentQuality > requiredQuality);
 
 	
-	if (myid == 0)
+	if (myid == P0)
 		writeClustersToFile(outputFile, clusters, k, numDims, currentQuality);
 	
 	//Time measurment
@@ -240,7 +241,7 @@ int main(int argc, char *argv[])
 	free(clusters);
 	free(pToCRelevanceEachProc);
 
-	if (myid == 0)
+	if (myid == P0)
 	{
 		free(pointToClusterRelevance);
 		printf("\ntime=%.5f\nquality=%.5f\n\n", t2, currentQuality);
@@ -256,23 +257,23 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 	int *sendCounts,	//[numOfProcs] item i will hold the num of elements proc i will receive in scatterv 
 	int *displs)		//[numOfProcs] the offsets between the data of each proc
 {
-	int i, remainder, index, *pointCounterForMachine;
+	int i, remainder, index, *pointCounterForProc;
 
-	pointCounterForMachine = (int*)malloc(numOfProcs * sizeof(int));
+	pointCounterForProc = (int*)malloc(numOfProcs * sizeof(int));
 
 	remainder = totalNumPoints % numOfProcs;
 	index = 0;
 
 	for (i = 0; i < numOfProcs; ++i)
 	{
-		pointCounterForMachine[i] = totalNumPoints / numOfProcs;
+		pointCounterForProc[i] = totalNumPoints / numOfProcs;
 		if (remainder > 0)
 		{
-			pointCounterForMachine[i]++;
+			pointCounterForProc[i]++;
 			remainder--;
 		}
 
-		sendCounts[i] = pointCounterForMachine[i] * numDims;
+		sendCounts[i] = pointCounterForProc[i] * numDims;
 		displs[i] = index;
 		index += sendCounts[i];
 	}
@@ -282,7 +283,7 @@ void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int nu
 {
 	int i, j;
 
-#pragma parallel for private(j)
+#pragma omp parallel for private(j)
 	for (i = 0; i < numOfPoints; i++)
 	{
 		for (j = 0; j < numDims; j++)
@@ -309,3 +310,15 @@ void printPoints(double *points, int numOfPoints, int numDims)
 	}
 }
 
+void pickFirstKAsInitialClusterCenters(double** clusters, int k, double** points, int numOfPoints, int numDims);
+{
+	int i, j;
+	
+	for (i = 0; i < k; ++i)
+	{
+		for (j = 0; j < numDims; ++j)
+		{
+			clusters[i][j] = pointsReadFile[j + i * numDims];
+		}
+	}
+}
