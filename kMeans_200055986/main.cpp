@@ -32,8 +32,10 @@ int main(int argc, char *argv[])
 		*pToCRelevanceEachProc,		//[numPointsInProc] in use for the K-Means only! holds the relevance of points to clusters for each proc
 		*sendCounts = NULL,			//[numprocs] used for scatterV of points to procs
 		*recvCounts = NULL,			//[numprocs] used for gatherV of points to cluster relevancies from all procs to p0
+		*recvCountsUpdatedPoints,	//[numprocs] used for gatherV of updated points of each proc to p0
 		*displsScatter = NULL,		//[numprocs] used for scatterV of points to procs
 		*displsGather = NULL,		//[numprocs] used for gatherV of points to cluster relevancies from all procs to p0
+		*displsGatherUpdatedPoints, //[numprocs] used for gatherV of updated points of each proc to p0
 		*dataFromFileInt,			//[DATA_FROM_FILE_INT_SIZE] data from file with type int that will be broadcasted later
 		t;							//maximum time for running the algorithm
 
@@ -69,6 +71,10 @@ int main(int argc, char *argv[])
 	assert(recvCounts != NULL);
 	displsGather = (int*)malloc(numprocs * sizeof(int));
 	assert(displsGather != NULL);
+	recvCountsUpdatedPoints = (int*)malloc(numprocs * sizeof(int));
+	assert(recvCountsUpdatedPoints != NULL);
+	displsGatherUpdatedPoints = (int*)malloc(numprocs * sizeof(int));
+	assert(displsGatherUpdatedPoints != NULL);
 	dataFromFileInt = (int*)malloc(DATA_FROM_FILE_INT_SIZE * sizeof(int));
 	assert(dataFromFileInt != NULL);
 	dataFromFileDouble = (double*)malloc(DATA_FROM_FILE_DOUBLE_SIZE * sizeof(double));
@@ -125,6 +131,10 @@ int main(int argc, char *argv[])
 	displsGather[0] = 0;
 	for (i = 1; i < numprocs; ++i) { displsGather[i] = displsGather[i - 1] + recvCounts[i - 1]; }
 
+	for (i = 0; i < numprocs; ++i) { recvCountsUpdatedPoints[i] = recvCounts[i] * numDims; }
+	displsGatherUpdatedPoints[0] = 0;
+	for (i = 1; i < numprocs; ++i) { displsGatherUpdatedPoints[i] = displsGatherUpdatedPoints[i - 1] + recvCountsUpdatedPoints[i - 1]; }
+
 	//sendCount[myid] is number of doubles every proc gets
 	numPointsInProc = sendCounts[myid] / numDims;
 
@@ -146,10 +156,10 @@ int main(int argc, char *argv[])
 	}
 
 	//scatter points to all procs
-	MPI_Scatterv(pointsFromFile, sendCounts, displsScatter, MPI_DOUBLE, pointsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatterv(pointsFromFile, sendCounts, displsScatter, MPI_DOUBLE, pointsEachProc[0], sendCounts[myid], MPI_DOUBLE, P0, MPI_COMM_WORLD);
 	
 	//scatter point speeds to all procs
-	MPI_Scatterv(pointsSpeedsFromFile, sendCounts, displsScatter, MPI_DOUBLE, pointsSpeedsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatterv(pointsSpeedsFromFile, sendCounts, displsScatter, MPI_DOUBLE, pointsSpeedsEachProc[0], sendCounts[myid], MPI_DOUBLE, P0, MPI_COMM_WORLD);
 	
 	//each proc writes its points and their speeds to the GPU for the k-Means
 	copyPointDataToGPU(pointsEachProc, &devPoints, pointsSpeedsEachProc, &devPointSpeeds, numPointsInProc, numDims);
@@ -188,10 +198,15 @@ int main(int argc, char *argv[])
 		}
 
 		/* start the core computation -------------------------------------------*/
-		int check = k_means(pointsEachProc, devPoints, numDims, numPointsInProc, k, iterationLimit, pToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
+		k_means(pointsEachProc, devPoints, numDims, numPointsInProc, k, iterationLimit, pToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
 		
+		//Gather point to cluster relevance from all procs
 		MPI_Gatherv(pToCRelevanceEachProc, numPointsInProc, MPI_INT, pointToClusterRelevance,
-			recvCounts, displsGather, MPI_INT, 0, MPI_COMM_WORLD);
+			recvCounts, displsGather, MPI_INT, P0, MPI_COMM_WORLD);
+		//Gather moved points from all procs
+		MPI_Gatherv(pointsEachProc[0], numPointsInProc, MPI_DOUBLE, pointsFromFile, recvCountsUpdatedPoints,
+			displsGatherUpdatedPoints, MPI_DOUBLE, P0, MPI_COMM_WORLD);
+
 
 		//computing cluster group quality
 		if (myid == P0)
@@ -216,7 +231,6 @@ int main(int argc, char *argv[])
 			
 	} while (currentT < t && currentQuality > requiredQuality);
 
-	
 	if (myid == P0)
 		writeClustersToFile(outputFile, clusters, k, numDims, currentQuality);
 	
@@ -230,17 +244,19 @@ int main(int argc, char *argv[])
 	free(pToCRelevanceEachProc);
 	free(pointsEachProc[0]);
 	free(pointsEachProc);
-	//free(pointsFromFile);
-	//free(pointsSpeedsFromFile);
 	free(sendCounts);
 	free(displsScatter);
 	free(recvCounts);
+	free(recvCountsUpdatedPoints);
+	free(displsGatherUpdatedPoints);
 	free(displsGather);
 	free(dataFromFileInt);
 	free(dataFromFileDouble);
 
 	if (myid == P0)
 	{
+		free(pointsFromFile);
+		free(pointsSpeedsFromFile);
 		free(pointToClusterRelevance);
 		printf("\ntime=%.5f\nquality=%.5f\n\n", t2, currentQuality);
 	}

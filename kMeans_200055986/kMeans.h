@@ -8,7 +8,7 @@
 #include <omp.h>
 #include "kernel.h"
 
-int k_means(double    **points,     	//in:[numPoints][numDims] points from division of file
+void k_means(double    **points,     	//in:[numPoints][numDims] points from division of file
 	double     *devPoints,				//in:[numPoints * numDims]  pointer to points on GPU
 	int        numDims,
 	int        numPoints,

@@ -2,26 +2,22 @@
 #include "kernel.h"
 
 __global__ void movePoints(double *devPoints, // points that were copied to device
-	double *devSpeeds,		//speeds that were copied to device
+	double *devSpeeds,			//speeds that were copied to device
 	int numOfPoints,
 	int numDims,
-	int numThreadsInBlock,	//each thread takes care of one coord of one point
+	int numThreadsInBlock,		//each thread takes care of one coord of one point
 	double dt)					//the differencial for the change of coord
 {
 	int blockID = blockIdx.x;
 	int numOfCoord = numOfPoints * numDims;
 	int i;
-	double temp;
-	double newTemp;
 
+	//because we optimized num of blocks before calling the calling
 	if ((blockID == gridDim.x - 1) && (numOfPoints % blockDim.x <= threadIdx.x)) { return; } //dismiss spare threads
 
 	for (i = 0; i < numDims; ++i)
 	{
-		temp = devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i];
-		devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] += devSpeeds[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] * dt;
-		newTemp = devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i];
-		
+		devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] += devSpeeds[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] * dt;		
 	}
 }
 
@@ -44,7 +40,8 @@ __global__ void computeDistancesArray(double *devPoints,
 	{
 		result += (devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] - devClusters[threadIdx.y * numDims + i]) * (devPoints[(blockID * numThreadsInBlock + threadIdx.x) * numDims + i] - devClusters[threadIdx.y * numDims + i]);
 	}
-	//its not suppose to be sqrt(result) ?
+
+	//this array contains for each point its distance from each cluster
 	devDistsPointsToClusters[numPoints*threadIdx.y + (blockID * numThreadsInBlock + threadIdx.x)] = result;
 }
 
@@ -91,7 +88,9 @@ cudaError_t movePointsWithCuda(double **points,	//cpu points that will be update
 
 	cudaGetDeviceProperties(&devProp, 0); // 0 is for device 0
 
-	numThreadsInBlock = devProp.maxThreadsPerBlock / numOfPoints;
+	//if numOfPoints is bigger the maxThreadsPerBlock this is a problem
+	//numThreadsInBlock = devProp.maxThreadsPerBlock / numOfPoints;
+	numThreadsInBlock = devProp.maxThreadsPerBlock;
 	numBlocks = numOfPoints / numThreadsInBlock;
 	
 	if (numOfPoints % numThreadsInBlock > 0) { numBlocks++; }
@@ -136,7 +135,7 @@ cudaError_t classifyPointsToClusters(double *devPoints,
 
 	cudaGetDeviceProperties(&devProp, 0); // 0 is for device 0
 
-	//configuring kerenl params
+	//configuring kernel params
 	numThreadsInBlock = devProp.maxThreadsPerBlock / numClusters;
 	dim3 dim(numThreadsInBlock, numClusters);
 	numBlocks = numPoints / numThreadsInBlock;

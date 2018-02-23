@@ -70,7 +70,9 @@ double* computeClustersDiameters(double *points,
 double computeClusterGroupQuality(double **clusters, int numClusters, int numDims, double *diameters)
 {
 	int i, j;
-	int numElements = 0; //the divider for the quality formula
+
+	//each cluster calculates the distances from all clusters but itself
+	int numElements = numClusters * (numClusters - 1); //the divider for the quality formula
 	double quality = 0.0;
 
 #pragma omp parallel for private(j) reduction(+ : quality)
@@ -79,7 +81,6 @@ double computeClusterGroupQuality(double **clusters, int numClusters, int numDim
 		for (j = i + 1; j < numClusters; ++j)
 		{
 			quality += (diameters[i] + diameters[j]) / euclidDistanceForQuality(numDims, clusters[i], clusters[j]);
-			numElements++;
 		}
 	}
 	return quality / numElements;

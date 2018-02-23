@@ -1,6 +1,6 @@
 #include "kMeans.h"
 
-int k_means(double    **points,     	//in:[numPoints][numDims] points from division of file
+void k_means(double    **points,     	//in:[numPoints][numDims] points from division of file
 	double     *devPoints,				//in:[numPoints * numDims]  pointer to points on GPU
 	int        numDims,
 	int        numPoints,
@@ -75,7 +75,7 @@ int k_means(double    **points,     	//in:[numPoints][numDims] points from divis
 
 		//sum all points in newClusters 
 		MPI_Allreduce(newClusters[0], clusters[0], numClusters * numDims, MPI_DOUBLE, MPI_SUM, comm);
-		//ask moshe
+		//sum all cluster sizes for mean computation
 		MPI_Allreduce(newClusterSize, clusterSize, numClusters, MPI_INT, MPI_SUM, comm);
 
 		//average the sum and replace old cluster centers with newClusters
@@ -101,7 +101,6 @@ int k_means(double    **points,     	//in:[numPoints][numDims] points from divis
 	free(clusterSize);
 	free(cudaPToCRelevance);
 
-	return 0;
 }
 
 cudaError_t copyPointDataToGPU(double **points, double **devpoints, double **pointSpeeds, double **devSpeeds, int numpoints, int numDims)
