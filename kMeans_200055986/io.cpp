@@ -73,3 +73,19 @@ void writeClustersToFile(char    *fileName,
 	fclose(f);
 }
 
+void printPoints(double *points, int numOfPoints, int numDims)
+{
+	int i, j;
+
+	for (i = 0; i < numOfPoints; i++)
+	{
+		for (j = 0; j < numDims; j++)
+		{
+			printf("%lf ", points[i*numDims + j]);
+			fflush(stdout);
+		}
+
+		printf("\n");
+		fflush(stdout);
+	}
+}

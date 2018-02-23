@@ -170,3 +170,30 @@ cudaError_t FreePointDataOnGPU(double **devPoints, double **devPointSpeeds)
 
 	return cudaStatus;
 }
+
+void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt)
+{
+	int i, j;
+
+#pragma omp parallel for private(j)
+	for (i = 0; i < numOfPoints; i++)
+	{
+		for (j = 0; j < numDims; j++)
+		{
+			points[i][j] += speeds[i][j] * dt;
+		}
+	}
+}
+
+void pickFirstKAsInitialClusterCenters(double** clusters, int k, double* points, int numOfPoints, int numDims)
+{
+	int i, j;
+
+	for (i = 0; i < k; ++i)
+	{
+		for (j = 0; j < numDims; ++j)
+		{
+			clusters[i][j] = points[j + i * numDims];
+		}
+	}
+}

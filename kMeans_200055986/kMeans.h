@@ -28,5 +28,17 @@ cudaError_t copyPointDataToGPU(double **points,		//[numPoints][numDims] points t
 
 cudaError_t FreePointDataOnGPU(double **devPoints, double **devPointSpeeds);
 
+void movePointsWithOMP(double **points,		//[numPoints][numDims] points of each proc
+	double **speeds,		//[numPoints][numDims] speeds for the points of each proc
+	int numOfPoints,		//numOfPoints each proc
+	int numDims,
+	double dt);
+
+void pickFirstKAsInitialClusterCenters(double** clusters, //[numClusters][numDims] contains clusters centers
+	int k,
+	double* points,			//[numPoints * numDims] all points we read from file
+	int numOfPoints,		//total num of points from file
+	int numDims);
+
 
 #endif // !__K_MEANS_H

@@ -61,6 +61,9 @@ double* computeClustersDiameters(double *points,
 				diameters[i] = diametersThreads[j * numClusters + i];
 		}
 	}
+
+	free(diametersThreads);
+
 	return diameters;
 }
 

@@ -177,7 +177,7 @@ cudaError_t classifyPointsToClusters(double *devPoints,
 	}
 
 	//launch kernels//
-	computeDistancesArray << <numBlocks, dim >> > (devPoints, devClusters, numPoints, numClusters, numThreadsInBlock, numDims, devDistsPointsToClusters);
+	computeDistancesArray <<<numBlocks, dim >>> (devPoints, devClusters, numPoints, numClusters, numThreadsInBlock, numDims, devDistsPointsToClusters);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -200,7 +200,7 @@ cudaError_t classifyPointsToClusters(double *devPoints,
 	numBlocks = numPoints / numThreadsInBlock;
 	if (numPoints % numThreadsInBlock > 0) { numBlocks++; }
 
-	findMinDistanceForEachPointFromCluster << <numBlocks, numThreadsInBlock >> > (numPoints, numClusters, numThreadsInBlock, devDistsPointsToClusters, devPToCRelevance);
+	findMinDistanceForEachPointFromCluster <<<numBlocks, numThreadsInBlock >>> (numPoints, numClusters, numThreadsInBlock, devDistsPointsToClusters, devPToCRelevance);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();

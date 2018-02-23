@@ -25,4 +25,6 @@ void writeClustersToFile(char    *fileName,
 	int		  	numDims,
 	double   	quality);		//quality of the cluster group found
 
+void printPoints(double *points, int numOfPoints, int numDims);
+
 #endif //__IO_H

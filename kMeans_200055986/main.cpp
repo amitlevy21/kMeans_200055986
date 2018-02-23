@@ -17,10 +17,6 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 	int *sendCounts,	//[numOfProcs] item i will hold the num of elements proc i will receive in scatterv 
 	int *displs);		//[numOfProcs] the offsets between the data of each proc
 
-void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt);
-void printPoints(double *points, int numOfPoints, int numDims);
-void pickFirstKAsInitialClusterCenters(double** clusters, int k, double** points, int numOfPoints, int numDims);
-
 int main(int argc, char *argv[])
 {
 	//variables required for MPI initialization
@@ -41,7 +37,7 @@ int main(int argc, char *argv[])
 		*dataFromFileInt,			//[DATA_FROM_FILE_INT_SIZE] data from file with type int that will be broadcasted later
 		t;							//maximum time for running the algorithm
 
-	double	 *pointsReadFile,		//[totalNumPoints * numDims] all points from data-set
+	double	 *pointsFromFile,		//[totalNumPoints * numDims] all points from data-set
 		*devPoints = NULL,			//pointer to points on GPU 
 		*devPointSpeeds = NULL,		//pointer to points speeds on GPU
 		*diameters,					//[numClusters] in use by p0 only. contains diameters for each cluster
@@ -49,7 +45,7 @@ int main(int argc, char *argv[])
 		requiredQuality,			//required quality to reach stated in input file
 		currentQuality,				//quality of the current state of points, before moving them again
 		**pointsEachProc,			//[numPointsInProc][numDims] holds all points that were assigned to a proc
-		*pointsSpeeds,				//[totalNumPoints * numDims] holds all speeds for each coordinate of each point
+		*pointsSpeedsFromFile,		//[totalNumPoints * numDims] holds all speeds for each coordinate of each point
 		**pointsSpeedsEachProc,		//[numPointsInProc][numDims] holds the speeds for the points that belong to proc
 		*dataFromFileDouble,		//[DATA_FROM_FILE_DOUBLE_SIZE] data from file with type double that will be broadcasted later
 		dt,							//the change in time in each iteration
@@ -85,7 +81,7 @@ int main(int argc, char *argv[])
 	{
 		
 		//read points coordinate and speeds from data-set file
-		pointsReadFile = readPointsDataFromFile(inputFile,
+		pointsFromFile = readPointsDataFromFile(inputFile,
 			numDims,
 			&totalNumPoints,
 			&k,
@@ -93,7 +89,7 @@ int main(int argc, char *argv[])
 			&dt,
 			&iterationLimit,
 			&requiredQuality,
-			&pointsSpeeds);
+			&pointsSpeedsFromFile);
 
 		//pointToClusterRelevance - the cluster id for each point
 		pointToClusterRelevance = (int*)malloc(totalNumPoints * sizeof(int));
@@ -106,12 +102,11 @@ int main(int argc, char *argv[])
 
 		dataFromFileDouble[0] = requiredQuality;
 		dataFromFileDouble[1] = dt;
-		
 	}
 
 	//broadcasting helpful data from file to all procs
-	MPI_Bcast(dataFromFileInt, DATA_FROM_FILE_INT_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(dataFromFileDouble, DATA_FROM_FILE_DOUBLE_SIZE, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(dataFromFileInt, DATA_FROM_FILE_INT_SIZE, MPI_INT, P0, MPI_COMM_WORLD);
+	MPI_Bcast(dataFromFileDouble, DATA_FROM_FILE_DOUBLE_SIZE, MPI_DOUBLE, P0, MPI_COMM_WORLD);
 	
 	totalNumPoints = dataFromFileInt[0];
 	iterationLimit = dataFromFileInt[1];
@@ -151,10 +146,10 @@ int main(int argc, char *argv[])
 	}
 
 	//scatter points to all procs
-	MPI_Scatterv(pointsReadFile, sendCounts, displsScatter, MPI_DOUBLE, pointsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatterv(pointsFromFile, sendCounts, displsScatter, MPI_DOUBLE, pointsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
 	//scatter point speeds to all procs
-	MPI_Scatterv(pointsSpeeds, sendCounts, displsScatter, MPI_DOUBLE, pointsSpeedsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatterv(pointsSpeedsFromFile, sendCounts, displsScatter, MPI_DOUBLE, pointsSpeedsEachProc[0], sendCounts[myid], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
 	//each proc writes its points and their speeds to the GPU for the k-Means
 	copyPointDataToGPU(pointsEachProc, &devPoints, pointsSpeedsEachProc, &devPointSpeeds, numPointsInProc, numDims);
@@ -175,18 +170,10 @@ int main(int argc, char *argv[])
 
 	//p0 picks first k elements in pointsReadFile[] as initial cluster centers
 	if (myid == P0)
-	{
-		for (i = 0; i < k; ++i)
-		{
-			for (j = 0; j < numDims; ++j)
-			{
-				clusters[i][j] = pointsReadFile[j + i * numDims];
-			}
-		}
-	}
+		pickFirstKAsInitialClusterCenters(clusters, k, pointsFromFile, totalNumPoints, numDims);
 
 	//p0 shares the initialized clusters with all procs
-	MPI_Bcast(clusters[0], k * numDims, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(clusters[0], k * numDims, MPI_DOUBLE, P0, MPI_COMM_WORLD);
 	
 	do
 	{
@@ -197,7 +184,7 @@ int main(int argc, char *argv[])
 			movePointsWithCuda(pointsEachProc, devPoints, devPointSpeeds, numPointsInProc, numDims, dt);
 
 			//update the points on CPU
-			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numpointsInProc, numDims, dt);
+			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numPointsInProc, numDims, dt);
 		}
 
 		/* start the core computation -------------------------------------------*/
@@ -209,7 +196,7 @@ int main(int argc, char *argv[])
 		//computing cluster group quality
 		if (myid == P0)
 		{
-			diameters = computeClustersDiameters(pointsReadFile, totalNumPoints, k, numDims, pointToClusterRelevance);
+			diameters = computeClustersDiameters(pointsFromFile, totalNumPoints, k, numDims, pointToClusterRelevance);
 
 			currentQuality = computeClusterGroupQuality(clusters, k, numDims, diameters);
 
@@ -219,12 +206,13 @@ int main(int argc, char *argv[])
 		//broadcasting the found quality to all procs because it's a condition to stop the do..while loop
 		MPI_Bcast(&currentQuality, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-		currentT += dt;
 		if (myid == P0)
 		{
 			printf("dt = %lf  qm = %lf\n", currentT, currentQuality);
 			fflush(stdout);
 		}
+
+		currentT += dt;
 			
 	} while (currentT < t && currentQuality > requiredQuality);
 
@@ -240,6 +228,16 @@ int main(int argc, char *argv[])
 	free(clusters[0]);
 	free(clusters);
 	free(pToCRelevanceEachProc);
+	free(pointsEachProc[0]);
+	free(pointsEachProc);
+	//free(pointsFromFile);
+	//free(pointsSpeedsFromFile);
+	free(sendCounts);
+	free(displsScatter);
+	free(recvCounts);
+	free(displsGather);
+	free(dataFromFileInt);
+	free(dataFromFileDouble);
 
 	if (myid == P0)
 	{
@@ -277,48 +275,6 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 		displs[i] = index;
 		index += sendCounts[i];
 	}
+	free(pointCounterForProc);
 }
 
-void movePointsWithOMP(double **points, double **speeds, int numOfPoints, int numDims, double dt)
-{
-	int i, j;
-
-#pragma omp parallel for private(j)
-	for (i = 0; i < numOfPoints; i++)
-	{
-		for (j = 0; j < numDims; j++)
-		{
-			points[i][j] += speeds[i][j] * dt;
-		}
-	}
-}
-
-void printPoints(double *points, int numOfPoints, int numDims)
-{
-	int i, j;
-
-	for  (i = 0; i < numOfPoints; i++)
-	{
-		for (j = 0; j < numDims; j++)
-		{
-			printf("%lf ", points[i*numDims + j]);
-			fflush(stdout);
-		}
-
-		printf("\n");
-		fflush(stdout);
-	}
-}
-
-void pickFirstKAsInitialClusterCenters(double** clusters, int k, double** points, int numOfPoints, int numDims);
-{
-	int i, j;
-	
-	for (i = 0; i < k; ++i)
-	{
-		for (j = 0; j < numDims; ++j)
-		{
-			clusters[i][j] = pointsReadFile[j + i * numDims];
-		}
-	}
-}
