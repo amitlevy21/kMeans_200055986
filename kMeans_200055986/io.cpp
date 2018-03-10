@@ -19,27 +19,26 @@ double* readPointsDataFromFile(const char *fileName,  //file containing the data
 
 	fscanf(f, "%d %d %d %lf %d %lf\n", numPoints, numOfClustersToFind, t, dt, iterationLimit, qualityOfClusters);
 	
-	//assiging the vectors Array (1D)
+	//assiging the points Array (1D)
 	points = (double*)malloc((*numPoints) * numDims * sizeof(double));
 	assert(points != NULL);
 	*pointsSpeeds = (double*)malloc((*numPoints) * numDims * sizeof(double));
 	assert(*pointsSpeeds != NULL);
-	for (i = 0; i < (*numPoints); ++i)
+	for (i = 0; i < (*numPoints); i++)
 	{
 		//read initial coordinates
-		for (j = 0; j < numDims; ++j)
+		for (j = 0; j < numDims; j++)
 		{
 			fscanf(f, "%lf ", &points[j + i* numDims]);
 		}
 		//read speeds
-		for (j = 0; j < numDims; ++j)
+		for (j = 0; j < numDims; j++)
 		{
 			fscanf(f, "%lf ", (*pointsSpeeds) + j + i* numDims);
 		}
 
 		fscanf(f, "\n");
 	}
-	
 	fclose(f);
 	return points;
 }
@@ -59,11 +58,11 @@ void writeClustersToFile(char    *fileName,
 	fprintf(f, "K = %d QM = %.5f\n\n", numClusters, quality);
 	fprintf(f, "Centers of the clusters:\n\n");
 	
-	for (i = 0; i < numClusters; ++i)
+	for (i = 0; i < numClusters; i++)
 	{
 		fprintf(f, "%c%d ", 'C', i + 1);
 
-		for (j = 0; j < numDims; ++j)
+		for (j = 0; j < numDims; j++)
 		{
 			fprintf(f, "%.2f ", clusters[i][j]);
 		}

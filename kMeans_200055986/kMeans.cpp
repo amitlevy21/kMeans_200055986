@@ -19,7 +19,7 @@ void k_means(double    **points,     	//in:[numPoints][numDims] points from divi
 	double  **newClusters;			//[numClusters][numDims] used to calculate new cluster means
 
 	//initialize pointToClusterRelevance[]
-	for (i = 0; i < numPoints; ++i)
+	for (i = 0; i < numPoints; i++)
 	{
 		pointToClusterRelevance[i] = -1;
 	}
@@ -38,7 +38,7 @@ void k_means(double    **points,     	//in:[numPoints][numDims] points from divi
 	assert(newClusters != NULL);
 	newClusters[0] = (double*)calloc(numClusters * numDims, sizeof(double));
 	assert(newClusters[0] != NULL);
-	for (i = 1; i < numClusters; ++i) //arranging the rows
+	for (i = 1; i < numClusters; i++) //arranging the rows
 	{
 		newClusters[i] = newClusters[i - 1] + numDims;
 	}
@@ -50,7 +50,7 @@ void k_means(double    **points,     	//in:[numPoints][numDims] points from divi
 
 		classifyPointsToClusters(devPoints, clusters, numPoints, numClusters, numDims, cudaPToCRelevance);
 
-		for (i = 0; i < numPoints; ++i)
+		for (i = 0; i < numPoints; i++)
 		{
 			//check if any point changed his cluster
 			if (pointToClusterRelevance[i] != cudaPToCRelevance[i])
@@ -64,7 +64,7 @@ void k_means(double    **points,     	//in:[numPoints][numDims] points from divi
 
 			newClusterSize[index]++;
 			// update new cluster center: sum of points that belong to it 
-			for (j = 0; j < numDims; ++j)
+			for (j = 0; j < numDims; j++)
 				newClusters[index][j] += points[i][j];
 		}
 
@@ -188,9 +188,10 @@ void pickFirstKAsInitialClusterCenters(double** clusters, int k, double* points,
 {
 	int i, j;
 
-	for (i = 0; i < k; ++i)
+#pragma omp parallel for private(j)
+	for (i = 0; i < k; i++)
 	{
-		for (j = 0; j < numDims; ++j)
+		for (j = 0; j < numDims; j++)
 		{
 			clusters[i][j] = points[j + i * numDims];
 		}

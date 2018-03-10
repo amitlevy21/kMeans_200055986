@@ -17,6 +17,10 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 	int *sendCounts,	//[numOfProcs] item i will hold the num of elements proc i will receive in scatterv 
 	int *displs);		//[numOfProcs] the offsets between the data of each proc
 
+
+void pointCollectionAssigmentForGatherV(int* recvCounts, const int* sendCounts, int* displsGather,
+	int* recvCountsUpdatedPoints, int* displsGatherUpdatedPoints, int numprocs, int numDims);
+
 int main(int argc, char *argv[])
 {
 	//variables required for MPI initialization
@@ -79,7 +83,7 @@ int main(int argc, char *argv[])
 	assert(dataFromFileInt != NULL);
 	dataFromFileDouble = (double*)malloc(DATA_FROM_FILE_DOUBLE_SIZE * sizeof(double));
 	assert(dataFromFileDouble != NULL);
-
+	
 	//Time measurment
 	double t1 = MPI_Wtime();
 
@@ -96,7 +100,7 @@ int main(int argc, char *argv[])
 			&iterationLimit,
 			&requiredQuality,
 			&pointsSpeedsFromFile);
-
+		
 		//pointToClusterRelevance - the cluster id for each point
 		pointToClusterRelevance = (int*)malloc(totalNumPoints * sizeof(int));
 		assert(pointToClusterRelevance != NULL);
@@ -109,7 +113,7 @@ int main(int argc, char *argv[])
 		dataFromFileDouble[0] = requiredQuality;
 		dataFromFileDouble[1] = dt;
 	}
-
+	
 	//broadcasting helpful data from file to all procs
 	MPI_Bcast(dataFromFileInt, DATA_FROM_FILE_INT_SIZE, MPI_INT, P0, MPI_COMM_WORLD);
 	MPI_Bcast(dataFromFileDouble, DATA_FROM_FILE_DOUBLE_SIZE, MPI_DOUBLE, P0, MPI_COMM_WORLD);
@@ -126,31 +130,26 @@ int main(int argc, char *argv[])
 	//set values to sendCounts & displsScatter
 	createPointAssignmentToProcArray(totalNumPoints, numprocs, numDims, sendCounts, displsScatter);
 
-	//make arrangements to gather all the point to cluster relevancies - for later on in the program 
-	for (i = 0; i < numprocs; ++i) { recvCounts[i] = sendCounts[i] / numDims; }
-	displsGather[0] = 0;
-	for (i = 1; i < numprocs; ++i) { displsGather[i] = displsGather[i - 1] + recvCounts[i - 1]; }
-
-	for (i = 0; i < numprocs; ++i) { recvCountsUpdatedPoints[i] = recvCounts[i] * numDims; }
-	displsGatherUpdatedPoints[0] = 0;
-	for (i = 1; i < numprocs; ++i) { displsGatherUpdatedPoints[i] = displsGatherUpdatedPoints[i - 1] + recvCountsUpdatedPoints[i - 1]; }
+	//make arrangements to gather all the point to cluster relevancies - for later on in the program
+	pointCollectionAssigmentForGatherV(recvCounts, sendCounts, displsGather, recvCountsUpdatedPoints,
+		displsGatherUpdatedPoints, numprocs, numDims);
 
 	//sendCount[myid] is number of doubles every proc gets
 	numPointsInProc = sendCounts[myid] / numDims;
-
+	
 	//allocate memory for storing points on each proc
 	pointsEachProc = (double**)malloc(numPointsInProc * sizeof(double*));
 	assert(pointsEachProc != NULL);
 	pointsEachProc[0] = (double*)malloc(numPointsInProc * numDims * sizeof(double));
 	assert(pointsEachProc[0] != NULL);
-	for (i = 1; i < numPointsInProc; ++i)
+	for (i = 1; i < numPointsInProc; i++)
 	{
 		pointsEachProc[i] = pointsEachProc[i - 1] + numDims;
 	}
 	pointsSpeedsEachProc = (double**)malloc(numPointsInProc * sizeof(double*));
 	assert(pointsSpeedsEachProc != NULL);
 	pointsSpeedsEachProc[0] = (double*)malloc(numPointsInProc * numDims * sizeof(double));
-	for (i = 1; i < numPointsInProc; ++i)
+	for (i = 1; i < numPointsInProc; i++)
 	{
 		pointsSpeedsEachProc[i] = pointsSpeedsEachProc[i - 1] + numDims;
 	}
@@ -173,7 +172,7 @@ int main(int argc, char *argv[])
 	assert(clusters != NULL);
 	clusters[0] = (double*)malloc(k * numDims * sizeof(double));
 	assert(clusters[0] != NULL);
-	for (i = 1; i < k; ++i)
+	for (i = 1; i < k; i++)
 	{
 		clusters[i] = clusters[i - 1] + numDims;
 	}
@@ -185,7 +184,7 @@ int main(int argc, char *argv[])
 	//p0 shares the initialized clusters with all procs
 	MPI_Bcast(clusters[0], k * numDims, MPI_DOUBLE, P0, MPI_COMM_WORLD);
 	
-	do
+	do // condition = while (currentT < t && currentQuality > requiredQuality)
 	{
 		//save GPU run time - do not move the points with 0*vi
 		if (currentT != 0)
@@ -196,7 +195,7 @@ int main(int argc, char *argv[])
 			//update the points on CPU
 			//movePointsWithOMP(pointsEachProc, pointsSpeedsEachProc, numPointsInProc, numDims, dt);
 		}
-
+		
 		/* start the core computation -------------------------------------------*/
 		k_means(pointsEachProc, devPoints, numDims, numPointsInProc, k, iterationLimit, pToCRelevanceEachProc, clusters, MPI_COMM_WORLD);
 		
@@ -206,15 +205,15 @@ int main(int argc, char *argv[])
 		//Gather moved points from all procs
 		MPI_Gatherv(pointsEachProc[0], numPointsInProc, MPI_DOUBLE, pointsFromFile, recvCountsUpdatedPoints,
 			displsGatherUpdatedPoints, MPI_DOUBLE, P0, MPI_COMM_WORLD);
-
+		
 
 		//computing cluster group quality
 		if (myid == P0)
 		{
 			diameters = computeClustersDiameters(pointsFromFile, totalNumPoints, k, numDims, pointToClusterRelevance);
-
+			
 			currentQuality = computeClusterGroupQuality(clusters, k, numDims, diameters);
-
+			
 			free(diameters);
 		}
 
@@ -223,7 +222,7 @@ int main(int argc, char *argv[])
 
 		if (myid == P0)
 		{
-			printf("dt = %lf  qm = %lf\n", currentT, currentQuality);
+			printf("dt = %.2lf  qm = %.2lf\n", currentT, currentQuality);
 			fflush(stdout);
 		}
 
@@ -278,7 +277,7 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 	remainder = totalNumPoints % numOfProcs;
 	index = 0;
 
-	for (i = 0; i < numOfProcs; ++i)
+	for (i = 0; i < numOfProcs; i++)
 	{
 		pointCounterForProc[i] = totalNumPoints / numOfProcs;
 		if (remainder > 0)
@@ -294,3 +293,19 @@ void createPointAssignmentToProcArray(int totalNumPoints,
 	free(pointCounterForProc);
 }
 
+void pointCollectionAssigmentForGatherV(int* recvCounts, const int* sendCounts, int* displsGather,
+	int* recvCountsUpdatedPoints, int* displsGatherUpdatedPoints, int numprocs, int numDims)
+{
+	int i, j;
+
+	//1st section - handles values to recieve the point to cluster relevance from each proc
+	for (i = 0; i < numprocs; i++) { recvCounts[i] = sendCounts[i] / numDims; }
+	displsGather[0] = 0;
+	for (i = 1; i < numprocs; i++) { displsGather[i] = displsGather[i - 1] + recvCounts[i - 1]; }
+
+	//2nd section - handles values to recieve the moved points from each proc
+	for (i = 0; i < numprocs; i++) { recvCountsUpdatedPoints[i] = sendCounts[i]; }
+	displsGatherUpdatedPoints[0] = 0;
+	for (i = 1; i < numprocs; i++) { displsGatherUpdatedPoints[i] = displsGatherUpdatedPoints[i - 1] + recvCountsUpdatedPoints[i - 1]; }
+
+}
