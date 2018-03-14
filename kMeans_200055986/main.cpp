@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
 
 	//variables for program
 	int i, j, k,					// k is actual num of clusters
-		numDims = 2,				
+		numDims = 2,
 		totalNumPoints,				//num of points read from file
 		iterationLimit,				//limit of iterations allowed in kMeans algorithm
 		*pointToClusterRelevance,   //[totalNumPoints] in use by p0 only! index is point and value is cluster index which the point belongs to

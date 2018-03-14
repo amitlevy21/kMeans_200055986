@@ -42,8 +42,7 @@ double* computeClustersDiameters(double *points,
 
 		for (j = i + 1; j < numPoints; j++)
 		{
-			//printf("h\n");
-			//fflush(stdout);
+
 			if (pToCR[i] == pToCR[j]) //then these two points are in the same cluster
 			{
 				dist = euclidDistanceForQuality(numDims, points + (i * numDims), points + (j * numDims));
